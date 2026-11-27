@@ -15,6 +15,13 @@ from unittest.mock import patch, MagicMock
 from django.test import TestCase, Client
 
 
+class HealthCheckTests(TestCase):
+    def test_healthz_returns_json_without_external_dependencies(self):
+        response = self.client.get('/healthz/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'status': 'ok'})
+
+
 # ── 1. Compass conversion ──────────────────────────────────────────────────────
 class CompassDirectionTests(TestCase):
     """Test get_compass_direction for key angles and boundaries."""

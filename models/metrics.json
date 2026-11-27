@@ -53,15 +53,15 @@
     ]
   },
   "temp_regressor": {
-    "mae": 0.763,
-    "rmse": 1.0729,
+    "mae": 0.8362,
+    "rmse": 1.1508,
     "baseline_mae": 2.1894,
     "baseline_rmse": 2.8556,
     "beats_baseline": true
   },
   "humidity_regressor": {
-    "mae": 4.1607,
-    "rmse": 5.8238,
+    "mae": 4.3094,
+    "rmse": 5.9976,
     "baseline_mae": 9.0061,
     "baseline_rmse": 11.9951,
     "beats_baseline": true

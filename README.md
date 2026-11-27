@@ -1,4 +1,6 @@
-﻿# 🌤️ Real-Time Weather Forecasting App
+# 🌤️ Real-Time Weather Forecasting App
+
+[![Django CI](https://github.com/akasha66850-cloud/weather-app/actions/workflows/ci.yml/badge.svg)](https://github.com/akasha66850-cloud/weather-app/actions/workflows/ci.yml)
 
 A modern, full-stack Django 5 weather application that combines **live OpenWeatherMap data** with a **Machine Learning pipeline** (RandomForest) for rain prediction and temperature/humidity forecasting — featuring an interactive Chart.js forecast graph, live animated weather particle effects, dynamic city background photography, Google News weather headlines, Twilio SMS alerts, and an **interactive India Weather Map built with Folium**.
 
@@ -168,19 +170,7 @@ cd "C:\Users\Akash P\Downloads\weather_app"
 pip install -r requirements.txt
 ```
 
-**`requirements.txt` contents:**
-```text
-django>=5.0
-requests>=2.28
-pandas>=1.5
-numpy>=1.23
-scikit-learn>=1.2
-pytz>=2023.3
-twilio>=9.0.0
-folium>=0.15.0
-python-dotenv>=1.0.0
-django-allauth>=65.0
-```
+**`requirements.txt` pins the currently installed application dependency versions.**
 
 ### 3. Environment Variables Configuration (`.env`)
 
@@ -208,7 +198,7 @@ TWILIO_MESSAGING_SERVICE_SID=your_twilio_messaging_service_sid_here
 DEMO_PASSWORD=your_demo_password_here
 ```
 
-> 💡 The application uses `python-dotenv` in `settings.py` and `sms.py`, so all environment variables are automatically loaded without requiring manual shell exports.
+> Local development loads `.env` from `settings.py`. Render uses its configured environment variables and does not load the local `.env` file.
 
 ### 4. Run Migrations
 
@@ -223,6 +213,51 @@ python manage.py runserver
 ```
 
 Open **http://127.0.0.1:8000/** in your browser.
+
+---
+
+## 🚀 Deployment on Render
+
+This repository includes `render.yaml`, `build.sh`, and a `Procfile`. In Render, choose **New → Blueprint**, connect the GitHub repository, and apply the `render.yaml` blueprint. The build runs `pip install -r requirements.txt`, `collectstatic`, and migrations; the web process runs Gunicorn with one worker, four threads, and a 120-second timeout. Configure the environment values below in the Render service. Use placeholders as a guide and enter real credentials only in Render's environment settings.
+
+| Variable | Render value |
+| --- | --- |
+| `DJANGO_SECRET_KEY` | `<generate a secret in Render>` |
+| `DEBUG` | `False` |
+| `ALLOWED_HOSTS` | `<service-name>.onrender.com` |
+| `CSRF_TRUSTED_ORIGINS` | `https://<service-name>.onrender.com` |
+| `DATABASE_URL` | `<Render internal PostgreSQL URL>` |
+| `OPENWEATHER_API_KEY` | `<OpenWeather API key>` |
+| `GOOGLE_CLIENT_ID` | `<Google OAuth client ID>` |
+| `GOOGLE_CLIENT_SECRET` | `<Google OAuth client secret>` |
+| `EMAIL_BACKEND` | `<SMTP email backend>` |
+| `EMAIL_HOST` | `<SMTP host>` |
+| `EMAIL_PORT` | `<SMTP port>` |
+| `EMAIL_USE_TLS` | `<True or False>` |
+| `EMAIL_HOST_USER` | `<SMTP username>` |
+| `EMAIL_HOST_PASSWORD` | `<SMTP password>` |
+| `TWILIO_ACCOUNT_SID` | `<Twilio account SID>` |
+| `TWILIO_AUTH_TOKEN` | `<Twilio auth token>` |
+| `TWILIO_FROM_NUMBER` | `<Twilio sender number>` |
+| `TWILIO_MESSAGING_SERVICE_SID` | `<Twilio Messaging Service SID>` |
+| `TWILIO_VERIFY_SID` | `<Twilio Verify Service SID, optional>` |
+
+Google OAuth: add `https://<service-name>.onrender.com/accounts/google/login/callback/` as an **Authorized redirect URI** in the Google OAuth client. In Django Admin, open **Sites** and set the site with ID `1` to domain `<service-name>.onrender.com` (no scheme or path); this is the allauth Site domain. The local callback is `http://127.0.0.1:8000/accounts/google/login/callback/`.
+
+For SMS jobs, create Render Cron Jobs using these commands and provide the same database, OpenWeather, and Twilio environment variables to each job:
+
+```sh
+python manage.py send_morning_updates
+python manage.py check_weather_alerts
+```
+
+Run `send_morning_updates` every 15 minutes so each subscriber's configured local send time is checked. Run `check_weather_alerts` on the interval you want alerts checked; the command has a six-hour duplicate-alert cooldown. Render Cron Jobs need an appropriate paid plan.
+
+Render Free web services spin down after 15 minutes without inbound traffic and usually take about a minute to wake on the next request. Their local filesystem is ephemeral. Free Render Postgres databases expire after 30 days, with a 14-day grace period to upgrade before deletion; use a paid database for durable production data. See [Render free instance limits](https://render.com/docs/free).
+
+Twilio trial accounts currently expire after 30 days, can send only to verified recipients, and are limited to 50 SMS messages per day; trial messages also have trial-specific content restrictions. See [Twilio trial account restrictions](https://www.twilio.com/docs/usage/trials).
+
+After deployment, check `https://<service-name>.onrender.com/healthz/` for a JSON health response. `models/*.joblib` are loaded on first ML use; the server logs a warning and skips ML predictions if an artifact is missing. The server never trains models at startup.
 
 ---
 
@@ -487,7 +522,7 @@ The app features full user authentication powered by `django.contrib.auth` and `
 3. Create **Credentials** → **OAuth client ID** → Application type: **Web application**.
 4. Under **Authorized redirect URIs**, add:
    - Development: `http://127.0.0.1:8000/accounts/google/login/callback/`
-   - Production: `https://yourdomain.com/accounts/google/login/callback/`
+   - Render: `https://<service-name>.onrender.com/accounts/google/login/callback/`
 5. Copy the Client ID and Client Secret into your `.env` file:
    ```env
    GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com

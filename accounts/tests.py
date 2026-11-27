@@ -1,9 +1,24 @@
 from unittest.mock import patch
-from django.test import TestCase, Client
+from django.test import TestCase, Client, RequestFactory, override_settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from accounts.models import UserProfile, FavoriteCity
-from accounts.security import record_failed_login, is_locked_out, clear_failed_logins
+from accounts.security import record_failed_login, is_locked_out, clear_failed_logins, get_client_ip
+
+
+class ClientIPTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    @override_settings(DEBUG=False)
+    def test_uses_first_forwarded_ip_in_production(self):
+        request = self.factory.get('/', HTTP_X_FORWARDED_FOR='203.0.113.8, 10.0.0.1', REMOTE_ADDR='10.0.0.2')
+        self.assertEqual(get_client_ip(request), '203.0.113.8')
+
+    @override_settings(DEBUG=True)
+    def test_uses_remote_addr_in_debug_even_with_forwarded_header(self):
+        request = self.factory.get('/', HTTP_X_FORWARDED_FOR='203.0.113.8', REMOTE_ADDR='127.0.0.1')
+        self.assertEqual(get_client_ip(request), '127.0.0.1')
 
 
 class AccountsAuthTests(TestCase):

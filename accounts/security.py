@@ -1,4 +1,5 @@
 from django.core.cache import cache
+from django.conf import settings
 
 LOCKOUT_THRESHOLD = 5
 LOCKOUT_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
@@ -12,7 +13,7 @@ def _get_cache_key(ip: str, email: str) -> str:
 
 def get_client_ip(request) -> str:
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
+    if not settings.DEBUG and x_forwarded_for:
         ip = x_forwarded_for.split(',')[0].strip()
     else:
         ip = request.META.get('REMOTE_ADDR', '127.0.0.1')

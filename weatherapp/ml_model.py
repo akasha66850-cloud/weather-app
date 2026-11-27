@@ -6,8 +6,7 @@ Regressors       : RandomForest with 3-lag hourly features (temp & humidity)
                    Falls back to chained single-lag if hourly data is missing
                    or if the model does not beat the persistence baseline.
 Persistence      : joblib files in <BASE_DIR>/models/
-Training trigger : python manage.py train_models   (or on first request if
-                   models/ files are absent)
+Training trigger : python manage.py train_models (manual/offline only)
 """
 
 import os
@@ -323,10 +322,10 @@ def train_regressors(hourly_csv: str) -> dict:
 
     logger.info("ml_model: regressor train=%d  test=%d", len(X_tr_t), len(X_te_t))
 
-    temp_model = RandomForestRegressor(n_estimators=100, max_depth=18, min_samples_leaf=3, n_jobs=-1, random_state=42)
+    temp_model = RandomForestRegressor(n_estimators=25, max_depth=12, min_samples_leaf=4, n_jobs=-1, random_state=42)
     temp_model.fit(X_tr_t, y_tr_t)
 
-    hum_model = RandomForestRegressor(n_estimators=100, max_depth=18, min_samples_leaf=3, n_jobs=-1, random_state=42)
+    hum_model = RandomForestRegressor(n_estimators=25, max_depth=12, min_samples_leaf=4, n_jobs=-1, random_state=42)
     hum_model.fit(X_tr_h, y_tr_h)
 
     # Evaluate vs persistence baseline
@@ -381,7 +380,8 @@ def train_regressors(hourly_csv: str) -> dict:
 
 def get_trained_models():
     """
-    Load models from models/*.joblib; train only if files are missing.
+    Lazily load models from models/*.joblib. Never train during a request or
+    application startup; missing artifacts disable ML predictions with a warning.
     Returns (rain_model, temp_model, hum_model, wind_le, rain_le, threshold).
     temp_model / hum_model may be None if regressors didn't beat the baseline.
     """
@@ -409,14 +409,17 @@ def get_trained_models():
         rain_le    = joblib.load(paths["rain_le"])
         threshold  = joblib.load(paths["threshold"])
     else:
-        logger.info("ml_model: model files missing — training now (run manage.py train_models for a full pipeline)")
-        result = run_training_pipeline(save=True)
-        rain_model = result["rain_model"]
-        temp_model = result["temp_model"]
-        hum_model  = result["hum_model"]
-        wind_le    = result["wind_le"]
-        rain_le    = result["rain_le"]
-        threshold  = result["threshold"]
+        logger.warning(
+            "ml_model: pre-trained model files are missing in %s. "
+            "ML predictions are disabled. Run 'python manage.py train_models' to train.",
+            md,
+        )
+        rain_model = None
+        temp_model = None
+        hum_model  = None
+        wind_le    = None
+        rain_le    = None
+        threshold  = 0.5
 
     packed = (rain_model, temp_model, hum_model, wind_le, rain_le, threshold)
     _model_cache["models"] = packed
@@ -451,7 +454,7 @@ def run_training_pipeline(save: bool = True) -> dict:
 
     # ── Save models ────────────────────────────────────────────────────────
     if save:
-        joblib.dump(rain_model, os.path.join(md, "rain_model.joblib"))
+        joblib.dump(rain_model, os.path.join(md, "rain_model.joblib"), compress=3)
         joblib.dump(temp_model, os.path.join(md, "temp_model.joblib"), compress=3)
         joblib.dump(hum_model,  os.path.join(md, "hum_model.joblib"), compress=3)
         joblib.dump(wind_le,    os.path.join(md, "wind_le.joblib"))
