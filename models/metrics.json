@@ -1,54 +1,54 @@
 {
   "rain_classifier": {
     "model_type": "RandomForestClassifier",
-    "accuracy": 0.8363,
-    "precision_rain": 0.8122,
-    "recall_rain": 0.7405,
-    "f1_rain": 0.7747,
-    "roc_auc": 0.9138,
-    "threshold": 0.56,
+    "accuracy": 0.8364,
+    "precision_rain": 0.7776,
+    "recall_rain": 0.7976,
+    "f1_rain": 0.7875,
+    "roc_auc": 0.9141,
+    "threshold": 0.51,
     "confusion_matrix": [
       [
-        7291,
-        855
+        7007,
+        1139
       ],
       [
-        1296,
-        3698
+        1011,
+        3983
       ]
     ],
     "top_features": [
       {
         "feature": "Humidity",
-        "importance": 0.3286
+        "importance": 0.411
       },
       {
         "feature": "MinTemp",
-        "importance": 0.1271
-      },
-      {
-        "feature": "MaxTemp",
-        "importance": 0.0842
+        "importance": 0.1161
       },
       {
         "feature": "month_sin",
-        "importance": 0.0821
-      },
-      {
-        "feature": "Pressure",
-        "importance": 0.0774
-      },
-      {
-        "feature": "Temp",
-        "importance": 0.0757
+        "importance": 0.0955
       },
       {
         "feature": "month_cos",
-        "importance": 0.0723
+        "importance": 0.0865
       },
       {
-        "feature": "WindGustSpeed",
-        "importance": 0.0578
+        "feature": "Pressure",
+        "importance": 0.0576
+      },
+      {
+        "feature": "Temp",
+        "importance": 0.055
+      },
+      {
+        "feature": "MaxTemp",
+        "importance": 0.0519
+      },
+      {
+        "feature": "Lat",
+        "importance": 0.0378
       }
     ]
   },

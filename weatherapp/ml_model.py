@@ -182,8 +182,9 @@ def train_rain_classifier(daily_csv: str) -> dict:
     # ── Train RF & HistGBM, pick best rain-F1 on val ──────────────────────
     rf = RandomForestClassifier(
         class_weight="balanced",
-        n_estimators=300,
-        min_samples_leaf=3,
+        n_estimators=40,
+        max_depth=12,
+        min_samples_leaf=4,
         n_jobs=-1,
         random_state=42,
     )
