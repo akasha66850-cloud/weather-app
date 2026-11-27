@@ -1,8 +1,11 @@
 # 🌤️ Real-Time Weather Forecasting App
 
 [![Django CI](https://github.com/akasha66850-cloud/weather-app/actions/workflows/ci.yml/badge.svg)](https://github.com/akasha66850-cloud/weather-app/actions/workflows/ci.yml)
+[![Live on Render](https://img.shields.io/badge/Render-Live_App-46e3b7?logo=render&logoColor=white)](https://weather-app-gck2.onrender.com)
 
-A modern, full-stack Django 5 weather application that combines **live OpenWeatherMap data** with a **Machine Learning pipeline** (RandomForest) for rain prediction and temperature/humidity forecasting — featuring an interactive Chart.js forecast graph, live animated weather particle effects, dynamic city background photography, Google News weather headlines, Twilio SMS alerts, and an **interactive India Weather Map built with Folium**.
+A modern, full-stack Django 5 weather application that combines **live OpenWeatherMap data** with an optimized **Machine Learning pipeline** (RandomForest) for rain prediction and temperature/humidity forecasting — featuring an interactive Chart.js forecast graph, live animated weather particle effects, dynamic city background photography, Google News weather headlines, Twilio SMS alerts, and an **interactive India Weather Map built with Folium**.
+
+👉 **Live Production URL**: [https://weather-app-gck2.onrender.com](https://weather-app-gck2.onrender.com)
 
 All data loads via **AJAX (no page reloads)** — search a city or use geolocation and the entire UI updates smoothly in place.
 
@@ -266,6 +269,7 @@ After deployment, check `https://<service-name>.onrender.com/healthz/` for a JSO
 | Endpoint | Method | Params / Payload | Description |
 |---|---|---|---|
 | `/` | `GET` | `?city=<name>` | Main application shell; auto-loads city if provided |
+| `/healthz/` | `GET` | — | Lightweight health check returning HTTP 200 JSON `{"status": "ok"}` for uptime monitoring |
 | `/autocomplete/` | `GET` | `?q=<prefix>` | City search suggestions from OpenWeather Geocoding |
 | `/api/weather/` | `GET` | `?city=<name>` | Current live weather, feels-like, stats, ML prediction & city photo |
 | `/api/forecast/` | `GET` | `?city=<name>` | 5-day / 3-hour forecast entries + chained ML predictions |
@@ -364,11 +368,13 @@ The application incorporates a machine learning forecasting engine retrained on 
 ### 2. Training Strategy & Architecture
 
 - **Time-Based Split**: Train on dates $\le$ 2022-12-31, test on dates $\ge$ 2023-01-01 (prevents time-leakage and simulates real-world deployment).
-- **Rain Classifier**: `RandomForestClassifier(class_weight="balanced", n_estimators=300, min_samples_leaf=3, random_state=42)`.
-  - Tuned decision threshold ($0.56$) optimized on the 2022 validation slice to maximize rain-class F1 score.
-- **Hourly Regressors**: `RandomForestRegressor(n_estimators=100, max_depth=18, min_samples_leaf=3)` with 3-lag history features:
+- **Rain Classifier**: `RandomForestClassifier(class_weight="balanced", n_estimators=40, max_depth=12, min_samples_leaf=4, random_state=42)`.
+  - Tuned decision threshold ($0.51$) optimized on the 2022 validation slice to maximize rain-class F1 score.
+  - Compressed with `joblib.dump(..., compress=3)` to **2.17 MB** (RAM footprint: ~12 MB), preventing free-tier memory exhaustion.
+- **Hourly Regressors**: `RandomForestRegressor(n_estimators=25, max_depth=12, min_samples_leaf=4, random_state=42)` with 3-lag history features:
   - Features (9): `hour_sin`, `hour_cos`, `month_sin`, `month_cos`, `Lat`, `Lon`, and 3 hourly lags (`t0`, `t-1`, `t-2`).
   - Iteratively chains predictions across 40 three-hour steps ($120\text{ hours}$ / $5\text{ days}$) anchored to real-time OWM input.
+  - Compressed with `joblib.dump(..., compress=3)` to **4.34 MB** (Temp) and **4.13 MB** (Humidity).
 
 ---
 
@@ -377,30 +383,30 @@ The application incorporates a machine learning forecasting engine retrained on 
 Evaluated on unseen test data ($\ge 2023$):
 
 #### Rain Tomorrow Classifier
-| Metric | New Model (India, 48,204 rows, time-based split) |
+| Metric | Production Model (India, 48,204 rows, time-based split) |
 |---|---|
-| **Model** | `RandomForestClassifier` (balanced class weights) |
-| **Accuracy** | **0.8363** (83.6%) |
-| **Precision (rain)** | **0.8122** (81.2%) |
-| **Recall (rain)** | **0.7405** (74.1%) |
-| **F1 Score (rain)** | **0.7747** |
-| **ROC-AUC** | **0.9138** |
-| **Decision Threshold** | **0.56** (tuned) |
-| **Confusion Matrix** | TN=7,291 · FP=855 · FN=1,296 · TP=3,698 |
+| **Model** | `RandomForestClassifier` (balanced class weights, depth 12) |
+| **Accuracy** | **0.8364** (83.6%) |
+| **Precision (rain)** | **0.7776** (77.8%) |
+| **Recall (rain)** | **0.7976** (79.8%) |
+| **F1 Score (rain)** | **0.7875** |
+| **ROC-AUC** | **0.9141** |
+| **Decision Threshold** | **0.51** (tuned) |
+| **Confusion Matrix** | TN=7,007 · FP=1,139 · FN=1,011 · TP=3,983 |
 
 **Top Predictive Features**:
-1. `Humidity` (0.3286)
-2. `MinTemp` (0.1271)
-3. `MaxTemp` (0.0842)
-4. `month_sin` (0.0821)
-5. `Pressure` (0.0774)
-6. `Temp` (0.0757)
+1. `Humidity` (0.4110)
+2. `MinTemp` (0.1161)
+3. `month_sin` (0.0955)
+4. `month_cos` (0.0865)
+5. `Pressure` (0.0576)
+6. `Temp` (0.0550)
 
 #### Temperature & Humidity 3-Lag Regressors
 | Metric | Temperature Regressor | Humidity Regressor |
 |---|---|---|
-| **Model MAE** | **0.7630 °C** | **4.1607 %** |
-| **Model RMSE** | 1.0729 °C | 5.8238 % |
+| **Model MAE** | **0.8362 °C** | **4.3094 %** |
+| **Model RMSE** | 1.1508 °C | 5.9976 % |
 | **Persistence Baseline MAE** | 2.1894 °C | 9.0061 % |
 | **Beats Persistence?** | ✅ **Yes (nearly 3× better)** | ✅ **Yes (over 2× better)** |
 
@@ -466,13 +472,15 @@ python manage.py test accounts --verbosity=2
 
 | App | Test Class | Tests | What it covers |
 |---|---|---|---|
-| **accounts** | `AccountsAuthTests` | 11 | Signup creates user/profile, duplicate email rejection, case-insensitive email login, password validation, 30-day remember-me session, brute-force lockout (5 attempts / 15 min), open redirect protection, unauthenticated 401 guards, user-isolated favourites, profile GET/POST update |
+| **accounts** | `AccountsAuthTests` | 12 | Signup creates user/profile, duplicate email rejection, case-insensitive email login, password validation, 30-day remember-me session, brute-force lockout (5 attempts / 15 min), open redirect protection, unauthenticated 401 guards, user-isolated favourites, profile GET/POST update, reverse-proxy `X-Forwarded-For` client IP rate limiting |
 | **weatherapp** | `CompassDirectionTests` | 7 | 0°→N, 90°→E, 180°→S, 270°→W, boundary angles |
 | **weatherapp** | `WindFallbackTests` | 2 | Unknown direction → fallback to `'N'` with warning log |
 | **weatherapp** | `CyclicalFeaturesTests` | 2 | `month_sin/cos` and `hour_sin/cos` values |
 | **weatherapp** | `PredictFutureTests` | 2 | Returns exactly `steps` values; lag model & fallback paths |
 | **weatherapp** | `PredictRainTests` | 3 | Returns `'Yes'/'No'`, confidence 0–100, exception → `None` |
-| **weatherapp** | `WeatherApiKeysTests` | 2 | JSON keys `rain_result`, `rain_confidence`, `ml_available` present; 400 on missing city |
+| **weatherapp** | `WeatherApiKeysTests` | 7 | JSON keys `rain_result`, `rain_confidence`, `ml_available` present; 400 on missing city; anonymous vs authenticated feature gating |
+| **weatherapp** | `HealthzEndpointTests` | 1 | `/healthz/` returns HTTP 200 JSON `{"status": "ok"}` without calling external APIs |
+| **Total** | **38 Tests** | **38** | **100% Pass Rate in ~7 seconds** |
 
 ### Manual Verification
 
