@@ -1,0 +1,148 @@
+{
+  "dataset": {
+    "source": "Open-Meteo Historical Archive API (ERA5 reanalysis)",
+    "total_rows": 2103840,
+    "cities_count": 30,
+    "held_out_cities": [
+      "Reykjavik",
+      "Cairo",
+      "Sydney"
+    ],
+    "train_cutoff": "2023-12-31",
+    "test_start": "2024-01-01"
+  },
+  "temperature_model": {
+    "model_type": "HistGradientBoostingRegressor(delta_3h)",
+    "test_metrics": {
+      "3h": {
+        "model_mae": 0.855,
+        "model_rmse": 1.176,
+        "persistence_mae": 2.006,
+        "persistence_rmse": 2.657,
+        "yesterday_mae": 1.513,
+        "yesterday_rmse": 2.252,
+        "beats_persistence": true,
+        "beats_yesterday": true
+      },
+      "12h": {
+        "model_mae": 1.893,
+        "model_rmse": 2.402,
+        "persistence_mae": 5.678,
+        "persistence_rmse": 6.267,
+        "yesterday_mae": 1.367,
+        "yesterday_rmse": 2.067,
+        "beats_persistence": true,
+        "beats_yesterday": false
+      },
+      "24h": {
+        "model_mae": 1.921,
+        "model_rmse": 2.539,
+        "persistence_mae": 1.704,
+        "persistence_rmse": 2.47,
+        "yesterday_mae": 1.704,
+        "yesterday_rmse": 2.47,
+        "beats_persistence": false,
+        "beats_yesterday": false
+      }
+    },
+    "held_out_cities_metrics": {
+      "3h": {
+        "model_mae": 1.093,
+        "model_rmse": 1.449,
+        "persistence_mae": 2.011,
+        "persistence_rmse": 2.753,
+        "yesterday_mae": 1.806,
+        "yesterday_rmse": 2.579,
+        "beats_persistence": true,
+        "beats_yesterday": true
+      },
+      "12h": {
+        "model_mae": 2.207,
+        "model_rmse": 2.707,
+        "persistence_mae": 5.119,
+        "persistence_rmse": 6.097,
+        "yesterday_mae": 1.688,
+        "yesterday_rmse": 2.408,
+        "beats_persistence": true,
+        "beats_yesterday": false
+      },
+      "24h": {
+        "model_mae": 2.602,
+        "model_rmse": 3.281,
+        "persistence_mae": 1.959,
+        "persistence_rmse": 2.797,
+        "yesterday_mae": 1.959,
+        "yesterday_rmse": 2.797,
+        "beats_persistence": false,
+        "beats_yesterday": false
+      }
+    }
+  },
+  "humidity_model": {
+    "model_type": "HistGradientBoostingRegressor(delta_3h)",
+    "test_metrics": {
+      "3h": {
+        "model_mae": 4.647,
+        "model_rmse": 6.392,
+        "persistence_mae": 8.881,
+        "persistence_rmse": 11.987,
+        "yesterday_mae": 7.913,
+        "yesterday_rmse": 11.404,
+        "beats_persistence": true,
+        "beats_yesterday": true
+      },
+      "12h": {
+        "model_mae": 8.249,
+        "model_rmse": 11.501,
+        "persistence_mae": 24.411,
+        "persistence_rmse": 27.487,
+        "yesterday_mae": 7.523,
+        "yesterday_rmse": 10.953,
+        "beats_persistence": true,
+        "beats_yesterday": false
+      },
+      "24h": {
+        "model_mae": 9.758,
+        "model_rmse": 12.5,
+        "persistence_mae": 8.399,
+        "persistence_rmse": 11.851,
+        "yesterday_mae": 8.399,
+        "yesterday_rmse": 11.851,
+        "beats_persistence": false,
+        "beats_yesterday": false
+      }
+    },
+    "held_out_cities_metrics": {
+      "3h": {
+        "model_mae": 6.046,
+        "model_rmse": 7.861,
+        "persistence_mae": 8.724,
+        "persistence_rmse": 11.995,
+        "yesterday_mae": 9.262,
+        "yesterday_rmse": 12.64,
+        "beats_persistence": true,
+        "beats_yesterday": true
+      },
+      "12h": {
+        "model_mae": 11.134,
+        "model_rmse": 14.162,
+        "persistence_mae": 19.756,
+        "persistence_rmse": 23.533,
+        "yesterday_mae": 9.314,
+        "yesterday_rmse": 12.698,
+        "beats_persistence": true,
+        "beats_yesterday": false
+      },
+      "24h": {
+        "model_mae": 13.504,
+        "model_rmse": 16.676,
+        "persistence_mae": 8.931,
+        "persistence_rmse": 12.05,
+        "yesterday_mae": 8.931,
+        "yesterday_rmse": 12.05,
+        "beats_persistence": false,
+        "beats_yesterday": false
+      }
+    }
+  }
+}

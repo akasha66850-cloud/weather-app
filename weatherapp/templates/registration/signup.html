@@ -1,0 +1,117 @@
+{% extends "registration/base_auth.html" %}
+{% block title %}Create account – WeatherSense{% endblock %}
+
+{% block card_content %}
+<p class="auth-subtitle">Join WeatherSense today</p>
+<h1 class="auth-title">Create account</h1>
+<p style="font-size:0.83rem;color:#6b7280;margin:-18px 0 22px;line-height:1.45;">
+  Sign in to unlock the forecast chart, ML rain prediction, weather news, SMS alerts and the India map.
+</p>
+
+{% if errors.non_field %}
+  <div class="form-error" role="alert">{{ errors.non_field }}</div>
+{% endif %}
+
+<form method="post" action="{% url 'account_signup' %}" class="auth-form" novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}" />
+
+  <!-- Full Name -->
+  <div class="form-group">
+    <label for="id_full_name">Full name</label>
+    <div class="input-wrap">
+      <input type="text" id="id_full_name" name="full_name"
+             value="{{ form_data.full_name }}"
+             placeholder="Jane Smith"
+             autocomplete="name"
+             required />
+    </div>
+    {% if errors.full_name %}
+      <p class="field-error" role="alert">{{ errors.full_name }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Email -->
+  <div class="form-group">
+    <label for="id_email">Email address</label>
+    <div class="input-wrap">
+      <input type="email" id="id_email" name="email"
+             value="{{ form_data.email }}"
+             placeholder="you@example.com"
+             autocomplete="email"
+             required />
+    </div>
+    {% if errors.email %}
+      <p class="field-error" role="alert">{{ errors.email }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Password -->
+  <div class="form-group">
+    <label for="id_password">Password</label>
+    <div class="input-wrap">
+      <input type="password" id="id_password" name="password"
+             placeholder="At least 8 characters"
+             autocomplete="new-password"
+             class="has-toggle"
+             required />
+      <button type="button" class="eye-btn" aria-label="Show password">
+        <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/>
+          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+    {% if errors.password %}
+      <p class="field-error" role="alert">{{ errors.password }}</p>
+    {% endif %}
+  </div>
+
+  <!-- Confirm Password -->
+  <div class="form-group">
+    <label for="id_confirm">Confirm password</label>
+    <div class="input-wrap">
+      <input type="password" id="id_confirm" name="confirm_password"
+             placeholder="Repeat password"
+             autocomplete="new-password"
+             class="has-toggle"
+             required />
+      <button type="button" class="eye-btn" aria-label="Show password">
+        <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/>
+          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+    {% if errors.confirm_password %}
+      <p class="field-error" role="alert">{{ errors.confirm_password }}</p>
+    {% endif %}
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="margin-top:4px">
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="btn-label">Create account</span>
+  </button>
+
+  {% if google_enabled %}
+  <p class="btn-divider">or</p>
+  <form method="post" action="{% url 'google_login' %}" style="display:contents">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-google">
+      <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.2l6.8-6.8C35.7 2.3 30.2 0 24 0 14.7 0 6.8 5.4 2.9 13.3l7.9 6.1C12.6 13.4 17.9 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4 7.1-10 7.1-17z"/>
+        <path fill="#FBBC05" d="M10.8 28.6A14.7 14.7 0 019.5 24c0-1.6.3-3.1.8-4.6l-7.9-6.1A23.9 23.9 0 000 24c0 3.9.9 7.5 2.5 10.8l8.3-6.2z"/>
+        <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.1 0-11.4-4-13.2-9.5l-8.3 6.2C6.5 42.5 14.6 48 24 48z"/>
+      </svg>
+      Sign up with Google
+    </button>
+  </form>
+  {% endif %}
+</form>
+
+<p class="auth-footer">
+  Already have an account?
+  <a href="{% url 'account_login' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="link-blue">Sign in</a>
+</p>
+{% endblock %}

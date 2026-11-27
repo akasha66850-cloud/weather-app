@@ -1,0 +1,17 @@
+# Environment & Secrets
+.env
+
+# Large datasets & raw cache
+data/hourly_india.csv
+data/hourly_global.csv
+data/raw_cache/
+data/raw_cache_global/
+
+# Trained model binaries (large; regenerate with: python manage.py train_models)
+models/*.joblib
+
+# Python / Django
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3

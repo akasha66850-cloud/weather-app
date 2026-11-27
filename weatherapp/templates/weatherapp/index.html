@@ -1,0 +1,2382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Forecast</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    {{ app_context|json_script:"app-context-data" }}
+    <script>
+        window.INITIAL_CITY = "{{ initial_city|escapejs }}";
+        window.APP = JSON.parse(document.getElementById('app-context-data').textContent || '{}');
+    </script>
+    <style>
+        /* ═══════════════════════════════════════════════════════════
+           DESIGN SYSTEM — CSS custom properties
+           ═══════════════════════════════════════════════════════════ */
+        :root {
+            --accent:        #f97316;
+            --accent-hover:  #ea580c;
+            --accent-dim:    rgba(249,115,22,0.25);
+            --glass-bg:      rgba(10,10,10,0.55);
+            --glass-bg-dark: rgba(10,10,10,0.80);
+            --glass-border:  rgba(255,255,255,0.10);
+            --glass-border-hover: rgba(255,255,255,0.20);
+            --radius-sm:     8px;
+            --radius-md:     14px;
+            --radius-lg:     20px;
+            --radius-xl:     16px;
+            --text:          #ffffff;
+            --text-muted:    rgba(255,255,255,0.55);
+            --text-dim:      rgba(255,255,255,0.35);
+            /* spacing scale */
+            --sp-1: 4px; --sp-2: 8px; --sp-3: 12px;
+            --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+        }
+
+        *, *::before, *::after {
+            margin: 0; padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+        html, body { height: 100%; }
+
+        body {
+            min-height: 100vh;
+            background-color: #0f172a;
+            background-image: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            background-size: cover !important;
+            background-position: center center !important;
+            background-repeat: no-repeat !important;
+            background-attachment: fixed !important;
+            display: flex;
+            align-items: stretch;
+            overflow: hidden;
+            transition: background-image 0.8s ease;
+        }
+        /* Full-viewport dark overlay so text is always readable */
+        body::before {
+            content: '';
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.52);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* Fade-in on new data */
+        @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+        .fade-in { animation: fadeIn 0.3s ease forwards; }
+
+        .app-card {
+            position: relative; z-index: 1;
+            display: flex;
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ═══════════════════════════════════════════════════════════
+           LEFT PANEL
+           ═══════════════════════════════════════════════════════════ */
+        .left-panel {
+            width: 340px; min-width: 300px;
+            background: var(--glass-bg-dark);
+            backdrop-filter: blur(28px);
+            -webkit-backdrop-filter: blur(28px);
+            border-right: 1px solid rgba(255,255,255,0.07);
+            padding: 28px 22px 20px;
+            display: flex; flex-direction: column; gap: 0;
+            flex-shrink: 0;
+            overflow-y: auto; overflow-x: hidden;
+            position: relative;
+            transition: background 1s ease;
+        }
+        /* Particle canvas sits behind all left-panel children */
+        #weather-fx {
+            position: absolute; inset: 0;
+            pointer-events: none; overflow: hidden;
+            z-index: 0;
+        }
+        /* Every direct child except the canvas sits on top */
+        .left-panel > *:not(#weather-fx) { position: relative; z-index: 2; }
+
+        /* Coloured tints per weather type */
+        .left-panel[data-weather="rain"]    { background: rgba(10,20,40,0.88); }
+        .left-panel[data-weather="thunder"] { background: rgba(5,5,20,0.92); }
+        .left-panel[data-weather="snow"]    { background: rgba(15,25,40,0.86); }
+        .left-panel[data-weather="sunny"]   { background: rgba(40,20,5,0.82); }
+        .left-panel[data-weather="cloudy"]  { background: rgba(15,18,25,0.85); }
+        .left-panel[data-weather="mist"]    { background: rgba(15,20,20,0.84); }
+
+        /* ── Search bar ───────────────────────────────────────────── */
+        .search-wrapper { position: relative; }
+        .search-bar {
+            display: flex; align-items: center; gap: var(--sp-2);
+            background: rgba(255,255,255,0.07);
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            border: 1px solid var(--glass-border);
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .search-bar:focus-within {
+            border-color: var(--glass-border-hover);
+            background: rgba(255,255,255,0.09);
+        }
+        .search-bar .icon-cloud { font-size: 1.1rem; flex-shrink: 0; opacity: 0.65; }
+        .search-bar input {
+            flex: 1; background: transparent;
+            border: none; outline: none;
+            color: var(--text); font-size: 0.92rem;
+            font-family: 'Inter', sans-serif; min-width: 0;
+        }
+        .search-bar input::placeholder { color: var(--text-dim); }
+
+        /* Icon buttons inside search bar */
+        .icon-btn {
+            background: none; border: none; cursor: pointer;
+            color: rgba(255,255,255,0.45); font-size: 1rem; line-height: 1;
+            padding: 2px 3px;
+            border-radius: 6px;
+            transition: color 0.2s, transform 0.15s, background 0.15s;
+            flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .icon-btn:hover  { color: #fff; transform: scale(1.15); }
+        .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .icon-btn:active { transform: scale(0.95); }
+        .icon-btn.active { color: var(--accent); }
+        .icon-btn.geo-loading { animation: spin 1s linear infinite; }
+
+        /* Autocomplete dropdown */
+        .ac-dropdown {
+            position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+            background: rgba(18,18,18,0.97);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            overflow: hidden; z-index: 50; display: none;
+        }
+        .ac-dropdown.open { display: block; }
+        .ac-item {
+            padding: 10px 16px; color: var(--text-muted);
+            font-size: 0.88rem; cursor: pointer;
+            transition: background 0.15s;
+        }
+        .ac-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+        /* ── Favourites chips ─────────────────────────────────────── */
+        #fav-row {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            margin-top: var(--sp-3); min-height: 0;
+        }
+        .fav-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px; padding: 4px 10px 4px 12px;
+            font-size: 0.75rem; color: rgba(255,255,255,0.75);
+            cursor: pointer; user-select: none;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .fav-chip:hover { background: rgba(255,255,255,0.14); color: #fff; border-color: rgba(255,255,255,0.25); }
+        .fav-chip .chip-x {
+            font-size: 0.7rem; color: var(--text-dim); line-height: 1; padding: 0 1px;
+            transition: color 0.15s;
+        }
+        .fav-chip:hover .chip-x { color: rgba(255,100,100,0.75); }
+
+        /* ── Temperature block ────────────────────────────────────── */
+        .temp-block {
+            margin-top: var(--sp-5);
+            display: flex; flex-direction: column; gap: var(--sp-3);
+            flex-shrink: 0;
+        }
+
+        /* Row: temp pill + unit toggle side-by-side */
+        .temp-pill-row {
+            display: flex; align-items: flex-start;
+            justify-content: space-between; gap: var(--sp-2);
+        }
+        .temp-pill {
+            display: inline-flex; align-items: flex-start; gap: 2px;
+            background: rgba(99,102,241,0.78);
+            border-radius: var(--radius-lg);
+            padding: 10px 20px 10px 16px; width: fit-content;
+        }
+        .temp-num  { font-size: 3.4rem; font-weight: 700; color: #fff; line-height: 1; }
+        .temp-deg  { font-size: 1.8rem; font-weight: 300; color: rgba(255,255,255,0.75); margin-top: 6px; }
+        .feels-row { font-size: 0.88rem; color: var(--text-muted); }
+        .feels-row strong { color: rgba(255,255,255,0.85); }
+        .stat-list { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: 2px; }
+        .stat-line { font-size: 0.95rem; color: var(--text-muted); }
+        .stat-line .val { font-weight: 700; font-size: 1.3rem; color: #fff; margin-right: 6px; }
+
+        /* ── °C/°F toggle (now next to temp pill) ─────────────────── */
+        .unit-toggle {
+            display: flex; align-items: center;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg); padding: 2px;
+            margin-top: 4px; width: fit-content; flex-shrink: 0;
+        }
+        .unit-btn {
+            background: none; border: none; cursor: pointer;
+            color: rgba(255,255,255,0.45);
+            font-size: 0.72rem; font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            padding: 4px 10px; border-radius: 16px;
+            transition: all 0.2s;
+        }
+        .unit-btn.active { background: rgba(249,115,22,0.85); color: #fff; }
+        .unit-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        /* ── SMS card ─────────────────────────────────────────────── */
+        .sms-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: var(--radius-md);
+            margin-top: var(--sp-4);
+            overflow: hidden; position: relative; z-index: 2;
+            flex-shrink: 0;
+            backdrop-filter: blur(12px);
+            transition: border-color 0.2s;
+        }
+        .sms-card:hover { border-color: rgba(255,255,255,0.14); }
+        .sms-card-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 11px 14px; cursor: pointer; user-select: none;
+            transition: background 0.15s;
+        }
+        .sms-card-header:hover { background: rgba(255,255,255,0.04); }
+        .sms-card-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .sms-header-left { display: flex; align-items: center; gap: var(--sp-2); }
+        .sms-bell-icon { font-size: 1rem; }
+        .sms-title { font-size: 0.84rem; font-weight: 600; color: rgba(255,255,255,0.9); }
+        .sms-chevron { font-size: 0.85rem; color: var(--text-muted); transition: transform 0.2s; }
+        .sms-chevron.open { transform: rotate(180deg); }
+        .sms-card-body {
+            padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px;
+            border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px;
+        }
+        .sms-city-pill {
+            font-size: 0.74rem; color: rgba(255,255,255,0.6);
+            background: rgba(249,115,22,0.12);
+            border: 1px solid rgba(249,115,22,0.25);
+            padding: 4px 10px; border-radius: 20px; width: fit-content;
+        }
+        .sms-city-pill strong { color: var(--accent); }
+        .sms-field { display: flex; flex-direction: column; gap: 4px; }
+        .sms-field label { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; }
+        .sms-field input[type="tel"],
+        .sms-field input[type="text"],
+        .sms-field input[type="time"] {
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: var(--radius-sm);
+            padding: 8px 10px; color: #fff;
+            font-size: 0.82rem; font-family: 'Inter', sans-serif;
+            outline: none; transition: border-color 0.2s;
+        }
+        .sms-field input:focus { border-color: rgba(249,115,22,0.6); }
+        .sms-hint { font-size: 0.66rem; color: var(--text-dim); }
+        .sms-toggles { display: flex; flex-direction: column; gap: 6px; margin: 2px 0; }
+        .sms-toggle-label {
+            display: flex; align-items: center; gap: 7px;
+            font-size: 0.74rem; color: rgba(255,255,255,0.75); cursor: pointer;
+        }
+        .sms-toggle-label input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+        .sms-btn {
+            background: var(--accent); border: none; color: #fff;
+            font-family: 'Inter', sans-serif; font-size: 0.78rem; font-weight: 600;
+            padding: 8px 14px; border-radius: var(--radius-sm);
+            cursor: pointer; transition: background 0.2s, opacity 0.2s; width: 100%;
+        }
+        .sms-btn:hover  { background: var(--accent-hover); }
+        .sms-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sms-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+        .sms-btn-secondary {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.75);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.74rem; padding: 6px 10px;
+            border-radius: var(--radius-sm); cursor: pointer; transition: background 0.2s;
+        }
+        .sms-btn-secondary:hover { background: rgba(255,255,255,0.14); color: #fff; }
+        .sms-btn-row { display: flex; gap: 8px; }
+        .sms-otp-notice { font-size: 0.74rem; color: rgba(255,255,255,0.7); line-height: 1.35; }
+        .sms-success-badge { color: #34d399; font-size: 0.88rem; font-weight: 700; }
+        .sms-success-text { font-size: 0.76rem; color: rgba(255,255,255,0.75); line-height: 1.35; margin-top: 4px; }
+        .sms-status-msg {
+            font-size: 0.74rem; padding: 6px 10px;
+            border-radius: 6px; line-height: 1.3;
+        }
+        .sms-status-msg.error {
+            background: rgba(239,68,68,0.2);
+            border: 1px solid rgba(239,68,68,0.4); color: #fca5a5;
+        }
+        .sms-status-msg.info {
+            background: rgba(59,130,246,0.2);
+            border: 1px solid rgba(59,130,246,0.4); color: #93c5fd;
+        }
+        .sms-unsub-footer { text-align: right; margin-top: 2px; }
+        .sms-unsub-footer a { font-size: 0.7rem; color: var(--text-dim); text-decoration: underline; cursor: pointer; }
+        .sms-unsub-footer a:hover { color: rgba(255,100,100,0.75); }
+
+        /* ── News section ─────────────────────────────────────────── */
+        #news-section {
+            position: relative; z-index: 2;
+            display: flex; flex-direction: column;
+            margin-top: var(--sp-5);
+            flex: 1; min-height: 0; padding-bottom: 6px;
+        }
+        /* Fade-out at bottom so it never looks cut off */
+        #news-section::after {
+            content: '';
+            position: absolute; bottom: 0; left: 0; right: 0;
+            height: 40px;
+            background: linear-gradient(to bottom, transparent, rgba(10,10,10,0.75));
+            pointer-events: none; z-index: 3;
+        }
+        .news-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px; flex-shrink: 0;
+        }
+        .news-title { font-size: 0.86rem; font-weight: 700; letter-spacing: 0.03em; color: rgba(255,255,255,0.9); }
+        .news-city {
+            font-size: 0.72rem; font-weight: 500; color: var(--text-muted);
+            background: rgba(255,255,255,0.06); padding: 2px 8px;
+            border-radius: 12px; max-width: 130px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .news-toggle-btn {
+            display: none; /* shown on mobile */
+            background: none; border: none; color: var(--text-muted);
+            font-size: 0.75rem; cursor: pointer; padding: 2px 6px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .severe-alert-banner {
+            display: flex; align-items: flex-start; gap: 8px;
+            background: linear-gradient(135deg, rgba(239,68,68,0.22) 0%, rgba(249,115,22,0.22) 100%);
+            border: 1px solid rgba(239,68,68,0.45); border-radius: 12px;
+            padding: 8px 12px; margin-bottom: 10px;
+            flex-shrink: 0; backdrop-filter: blur(8px);
+        }
+        .alert-icon { font-size: 1rem; line-height: 1.2; flex-shrink: 0; }
+        .alert-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .alert-tag { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #fca5a5; }
+        .alert-link { font-size: 0.76rem; font-weight: 500; color: #fff; text-decoration: none; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .alert-link:hover { color: #fed7aa; text-decoration: underline; }
+
+        .news-list {
+            display: flex; flex-direction: column; gap: 8px;
+            flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px;
+        }
+        .news-list::-webkit-scrollbar { width: 3px; }
+        .news-list::-webkit-scrollbar-track { background: transparent; }
+        .news-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+        .news-list::-webkit-scrollbar-thumb:hover { background: rgba(249,115,22,0.5); }
+
+        .news-card {
+            display: flex; flex-direction: column; gap: 5px;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px; padding: 10px 12px;
+            text-decoration: none; color: inherit;
+            transition: background 0.2s, border-color 0.2s, transform 0.2s;
+            flex-shrink: 0; cursor: pointer;
+        }
+        .news-card:hover { background: rgba(249,115,22,0.15); border-color: rgba(249,115,22,0.35); transform: translateX(3px); }
+        .news-card-title { font-size: 0.78rem; font-weight: 500; color: rgba(255,255,255,0.92); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .news-card-meta { font-size: 0.68rem; color: var(--text-muted); font-weight: 400; }
+        .news-skeleton-card { pointer-events: none; cursor: default; }
+        .news-skeleton-card:hover { background: rgba(255,255,255,0.06); transform: none; }
+        .news-empty { font-size: 0.78rem; color: var(--text-muted); text-align: center; padding: 24px 8px; font-style: italic; }
+
+        /* ── Skeletons / spinners ─────────────────────────────────── */
+        .left-empty {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; gap: 10px; flex: 1; opacity: 0.5; margin-top: 60px;
+        }
+        .e-icon { font-size: 2.4rem; }
+        .left-empty p { font-size: 0.88rem; color: rgba(255,255,255,0.65); line-height: 1.5; }
+
+        .skeleton {
+            background: linear-gradient(90deg,
+                rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.05) 100%);
+            background-size: 200% 100%; animation: skeleton-shine 1.5s infinite; border-radius: 8px;
+        }
+        @keyframes skeleton-shine { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .spinner {
+            width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #left-loading  { display: none; flex-direction: column; gap: 12px; margin-top: 44px; }
+        #right-loading { display: none; flex: 1; align-items: center; justify-content: center; }
+
+        /* ═══════════════════════════════════════════════════════════
+           WEATHER PARTICLE EFFECTS
+           ═══════════════════════════════════════════════════════════ */
+        /* Lower opacity so particles don't obscure text */
+        @keyframes rainFall { 0% { transform:translateY(-10px); opacity:0; } 10% { opacity:0.25; } 90% { opacity:0.18; } 100% { transform:translateY(100vh); opacity:0; } }
+        .rain-drop { position:absolute; width:1.5px; background:linear-gradient(to bottom,transparent,rgba(130,180,255,0.6)); border-radius:2px; animation:rainFall linear infinite; }
+
+        @keyframes lightning { 0%,89%,91%,93%,100% { opacity:0; } 90%,92% { opacity:0.35; } }
+        .lightning-bolt { position:absolute; top:0; left:50%; width:2px; height:60%; background:linear-gradient(to bottom,rgba(255,255,220,0.8),transparent); transform-origin:top center; animation:lightning 3s infinite; filter:blur(1px); }
+
+        @keyframes snowFall { 0% { transform:translateY(-10px) rotate(0deg); opacity:0; } 10% { opacity:0.25; } 90% { opacity:0.15; } 100% { transform:translateY(100vh) rotate(360deg); opacity:0; } }
+        .snow-flake { position:absolute; border-radius:50%; background:rgba(255,255,255,0.75); animation:snowFall linear infinite; }
+
+        @keyframes sunPulse { 0%,100% { transform:scale(1); opacity:0.6; } 50% { transform:scale(1.08); opacity:0.7; } }
+        @keyframes rayRotate { to { transform:rotate(360deg); } }
+        @keyframes sparkle { 0%,100% { opacity:0; transform:scale(0.4); } 50% { opacity:0.5; transform:scale(1); } }
+        .sun-wrap { position:absolute; top:20%; left:50%; transform:translateX(-50%); width:110px; height:110px; }
+        .sun-halo { position:absolute; inset:-20px; border-radius:50%; background:radial-gradient(circle,rgba(255,220,80,0.1) 0%,transparent 70%); animation:sunPulse 2.5s ease-in-out infinite; }
+        .sun-rays-ring { position:absolute; inset:0; animation:rayRotate 12s linear infinite; }
+        .sun-ray { position:absolute; top:50%; left:50%; width:3px; height:18px; background:rgba(255,220,80,0.4); border-radius:2px; margin-left:-1.5px; margin-top:-9px; transform-origin:center 61px; }
+        .sun-core { position:absolute; inset:18px; border-radius:50%; background:radial-gradient(circle,#ffe97a 0%,#fbbf24 60%,#f97316 100%); box-shadow:0 0 32px 10px rgba(251,191,36,0.3); animation:sunPulse 2.5s ease-in-out infinite; }
+        .sun-sparkle { position:absolute; border-radius:50%; background:rgba(255,230,100,0.6); animation:sparkle ease-in-out infinite; }
+
+        @keyframes cloudDrift { 0% { transform:translateX(-120%); } 100% { transform:translateX(120%); } }
+        .cloud-shape { position:absolute; left:-10%; animation:cloudDrift linear infinite; }
+
+        @keyframes mistDrift { 0% { transform:translateX(-100%) scaleY(1); opacity:0; } 20% { opacity:0.6; } 80% { opacity:0.35; } 100% { transform:translateX(100%) scaleY(1.3); opacity:0; } }
+        .mist-strip { position:absolute; left:-50%; width:200%; height:24px; background:linear-gradient(to right,transparent,rgba(180,210,220,0.08),rgba(180,210,220,0.14),rgba(180,210,220,0.08),transparent); border-radius:50%; filter:blur(8px); animation:mistDrift linear infinite; }
+
+        /* ═══════════════════════════════════════════════════════════
+           RIGHT PANEL
+           ═══════════════════════════════════════════════════════════ */
+        .right-panel { flex: 1; display: flex; flex-direction: column; overflow-y: auto; position: relative; }
+        .right-content {
+            flex: 1; display: flex; flex-direction: column;
+            padding: 40px 48px 32px; gap: 0; height: 100%;
+        }
+
+        /* Top actions row — top-right corner of right panel */
+        .top-actions {
+            position: absolute; top: 20px; right: 24px; z-index: 100;
+            display: inline-flex; align-items: center; gap: 10px;
+        }
+
+        /* Unified top-right action pill buttons (36px tall, 999px radius) */
+        .top-pill-btn {
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 0 16px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            text-decoration: none;
+            user-select: none;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+            line-height: 1;
+        }
+        .map-pill-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.9);
+            cursor: pointer;
+        }
+        .map-pill-btn:hover {
+            background: var(--accent-dim);
+            border-color: rgba(249,115,22,0.45);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+        .map-pill-btn:active { transform: translateY(0); }
+        .map-pill-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        .auth-pill-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.9);
+            cursor: pointer;
+        }
+        .auth-pill-btn:hover {
+            background: rgba(255,255,255,0.16);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+        .auth-pill-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+
+        .signup-pill-btn {
+            background: #3b82f6 !important;
+            border-color: #3b82f6 !important;
+            color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+        }
+        .signup-pill-btn:hover {
+            background: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #ffffff !important;
+            transform: translateY(-1px);
+        }
+
+        .user-dropdown-wrap {
+            position: relative;
+        }
+        .user-avatar-btn {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: #fff; font-weight: 700; font-size: 0.82rem;
+            display: flex; align-items: center; justify-content: center;
+            border: 1px solid rgba(255,255,255,0.25);
+            cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .user-avatar-btn:hover { transform: scale(1.05); }
+        .user-avatar-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+
+        .user-dropdown-menu {
+            position: absolute; top: calc(100% + 8px); right: 0;
+            background: rgba(17, 24, 39, 0.95);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px; padding: 12px;
+            min-width: 200px; display: none; flex-direction: column; gap: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 150;
+        }
+        .user-dropdown-menu.show { display: flex; }
+        .user-info-box {
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding-bottom: 8px; margin-bottom: 4px;
+        }
+        .user-info-name { font-size: 0.85rem; font-weight: 600; color: #fff; }
+        .user-info-email { font-size: 0.72rem; color: rgba(255,255,255,0.5); overflow: hidden; text-overflow: ellipsis; }
+        .user-logout-btn {
+            background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3);
+            color: #fca5a5; font-size: 0.78rem; font-weight: 600;
+            padding: 6px 12px; border-radius: 6px; cursor: pointer;
+            text-align: center; width: 100%; transition: background 0.15s;
+        }
+        .user-logout-btn:hover { background: rgba(239,68,68,0.3); color: #fff; }
+
+        /* ── Locked Glass Cards & Indicators ── */
+        .locked-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 8px 32px var(--shadow-dark);
+            user-select: none;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .locked-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--glass-border-hover);
+        }
+
+        /* Compact horizontal cards for left panel (72-88px tall) */
+        .locked-card.locked-compact {
+            min-height: 76px;
+            margin-bottom: 12px;
+            justify-content: space-between;
+        }
+        .locked-compact-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            flex: 1;
+        }
+        .locked-icon-badge {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: rgba(249, 115, 22, 0.12);
+            border: 1px solid rgba(249, 115, 22, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #f97316;
+            flex-shrink: 0;
+        }
+        .locked-compact-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .locked-title {
+            font-size: 0.84rem;
+            font-weight: 600;
+            color: #ffffff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .locked-sub {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+        .locked-btn-sm {
+            background: rgba(249, 115, 22, 0.15);
+            border: 1px solid rgba(249, 115, 22, 0.35);
+            color: #f97316;
+            font-size: 0.74rem;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 999px;
+            text-decoration: none;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: all 0.15s ease;
+        }
+        .locked-btn-sm:hover {
+            background: #f97316;
+            color: #ffffff;
+            border-color: #f97316;
+        }
+        .locked-btn-sm:focus-visible {
+            outline: 2px solid #f97316;
+            outline-offset: 2px;
+        }
+
+        /* Right panel locked chart card matching real chart dimensions */
+        .locked-chart-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            padding: 20px 24px;
+            min-height: 250px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 8px 32px var(--shadow-dark);
+            margin-top: auto;
+        }
+        .locked-chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 2;
+        }
+        .locked-chart-title {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .locked-chart-badge {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.7);
+            font-size: 0.7rem;
+            padding: 3px 10px;
+            border-radius: 999px;
+        }
+        /* Fake blurred SVG chart line background */
+        .locked-chart-bg-svg {
+            position: absolute;
+            inset: 35px 0 0 0;
+            width: 100%;
+            height: calc(100% - 35px);
+            opacity: 0.16;
+            pointer-events: none;
+            filter: blur(1px);
+        }
+        .locked-chart-center {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 10px;
+            padding: 20px 0;
+        }
+        .locked-chart-center .locked-icon-badge {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+        }
+        .locked-chart-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #f97316;
+            color: #fff;
+            padding: 9px 20px;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.15s, transform 0.15s;
+            box-shadow: 0 2px 10px rgba(249, 115, 22, 0.35);
+        }
+        .locked-chart-btn:hover {
+            background: #ea580c;
+            transform: translateY(-1px);
+        }
+        .locked-chart-btn:focus-visible {
+            outline: 2px solid #f97316;
+            outline-offset: 2px;
+        }
+
+        /* Locked pill badge for rain prediction */
+        .locked-rain-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.85);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            margin-bottom: 14px;
+            backdrop-filter: blur(8px);
+        }
+        .locked-rain-pill:hover {
+            background: rgba(249, 115, 22, 0.15);
+            border-color: rgba(249, 115, 22, 0.4);
+            color: #fff;
+        }
+        .locked-rain-pill svg {
+            color: #f97316;
+        }
+
+        .icon-btn.is-disabled {
+            opacity: 0.45;
+            cursor: pointer;
+            position: relative;
+        }
+        .icon-btn.is-disabled:hover {
+            opacity: 0.8;
+            color: #f97316;
+        }
+
+        /* Hero text */
+        .fc-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em; color: rgba(255,255,255,0.4); text-transform: uppercase; margin-bottom: 10px; }
+        .condition-heading {
+            font-size: clamp(2rem,5vw,3.6rem); font-weight: 800;
+            color: #fff; line-height: 1.1; margin-bottom: 10px;
+            text-shadow: 0 1px 8px rgba(0,0,0,0.7), 0 2px 24px rgba(0,0,0,0.5);
+        }
+        .location-row {
+            display: flex; align-items: center; gap: 6px;
+            color: rgba(255,255,255,0.6); font-size: 0.84rem; margin-bottom: 14px;
+            text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+        }
+
+        /* Wind / pressure / visibility detail paragraph in lighter glass style */
+        .detail-para {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
+            border-radius: var(--radius-sm);
+            padding: 8px 14px;
+            font-size: 0.84rem;
+            color: rgba(255,255,255,0.85);
+            line-height: 1.5;
+            max-width: 580px;
+            margin-bottom: 14px;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        }
+
+        /* ML Rain badge in lighter glass style */
+        .rain-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid var(--glass-border);
+            padding: 7px 16px; border-radius: 50px;
+            font-size: 0.82rem; color: rgba(255,255,255,0.9);
+            width: fit-content; margin-bottom: 18px;
+            backdrop-filter: blur(10px);
+            text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+        }
+        .rain-badge .conf { color: var(--text-muted); font-size: 0.75rem; }
+
+        /* ── 4-card stat grid ─────────────────────────────────────── */
+        .stat-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px; margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl); padding: 14px 16px;
+            backdrop-filter: blur(14px);
+            transition: border-color 0.2s, transform 0.2s;
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .stat-card:hover { border-color: var(--glass-border-hover); transform: translateY(-2px); }
+        .stat-card-icon { font-size: 1.3rem; line-height: 1; }
+        .stat-card-label {
+            font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--text-muted);
+        }
+        .stat-card-value {
+            font-size: 1.5rem; font-weight: 700; color: #fff; line-height: 1;
+        }
+        .stat-card-unit { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+
+        /* ── Chart glass card ─────────────────────────────────────── */
+        #forecast-area { margin-top: auto; }
+        .chart-glass {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl); padding: 16px;
+            backdrop-filter: blur(14px);
+        }
+        /* Chart header: title + ⓘ tooltip + controls */
+        .chart-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px; gap: 8px; flex-wrap: wrap;
+        }
+        .chart-title-row {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.75);
+        }
+        .chart-info-btn {
+            position: relative;
+            background: none; border: none; cursor: default;
+            color: var(--text-muted); font-size: 0.85rem; line-height: 1;
+            display: flex; align-items: center;
+        }
+        .chart-info-btn .tooltip-text {
+            display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%); width: 240px;
+            background: rgba(10,10,20,0.95); border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm); padding: 8px 10px;
+            font-size: 0.72rem; color: rgba(255,255,255,0.75);
+            line-height: 1.4; white-space: normal;
+            z-index: 20; pointer-events: none;
+        }
+        .chart-info-btn:hover .tooltip-text { display: block; }
+        .chart-controls { display: flex; gap: 4px; flex-wrap: wrap; }
+        .metric-btns, .view-btns { display: flex; gap: 4px; }
+        .ctrl-btn {
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.6); padding: 5px 12px;
+            border-radius: 20px; font-size: 0.74rem; cursor: pointer;
+            font-family: 'Inter', sans-serif; transition: all 0.2s; white-space: nowrap;
+        }
+        .ctrl-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+        .ctrl-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .ctrl-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .chart-wrap-new { position: relative; height: 185px; width: 100%; }
+        #forecast-chart { width: 100% !important; height: 100% !important; }
+
+        /* Right panel empty/loading */
+        #right-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; flex: 1; opacity: 0.4; }
+        #right-empty p { font-size: 0.88rem; color: rgba(255,255,255,0.65); line-height: 1.5; }
+        #right-weather { display: none; flex-direction: column; height: 100%; }
+
+        /* ═══════════════════════════════════════════════════════════
+           INDIA MAP MODAL
+           ═══════════════════════════════════════════════════════════ */
+        .map-modal {
+            position: fixed; inset: 0; z-index: 1000;
+            display: flex; align-items: center; justify-content: center; padding: 4vh 4vw;
+        }
+        .map-modal-backdrop {
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.78); backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+        .map-modal-container {
+            position: relative; z-index: 1001; width: 100%; height: 100%;
+            max-width: 1240px;
+            background: rgba(18,22,34,0.96);
+            border: 1px solid var(--glass-border); border-radius: var(--radius-xl);
+            box-shadow: 0 25px 60px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.05);
+            display: flex; flex-direction: column; overflow: hidden;
+            animation: modalScaleIn 0.25s cubic-bezier(0.16,1,0.3,1);
+        }
+        @keyframes modalScaleIn { from { opacity:0; transform:scale(0.96); } to { opacity:1; transform:scale(1); } }
+        .map-modal-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 20px;
+            background: rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
+        }
+        .map-modal-title { font-size: 0.92rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; letter-spacing: 0.02em; }
+        .map-modal-title .badge { font-size: 0.68rem; background: rgba(249,115,22,0.2); color: var(--accent); border: 1px solid rgba(249,115,22,0.4); padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+        .map-modal-close {
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 50%; width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center;
+            color: rgba(255,255,255,0.7); font-size: 0.95rem; cursor: pointer;
+            transition: all 0.2s ease; outline: none;
+        }
+        .map-modal-close:hover, .map-modal-close:focus { background: rgba(239,68,68,0.35); border-color: rgba(239,68,68,0.55); color: #fff; transform: rotate(90deg); }
+        .map-modal-close:focus-visible { outline: 2px solid var(--accent); }
+        .map-modal-body { position: relative; flex: 1; min-height: 0; background: #111827; }
+        .map-loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(17,24,39,0.92); color: rgba(255,255,255,0.7); font-size: 0.86rem; z-index: 1; transition: opacity 0.3s ease; pointer-events: none; }
+        .map-loading .spinner { width: 32px; height: 32px; border-width: 2.5px; }
+        .map-iframe { width: 100%; height: 100%; border: none; display: block; }
+
+        /* ── Toast ───────────────────────────────────────────────── */
+        #toast {
+            position: fixed; bottom: 24px; left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(20,20,30,0.95);
+            border: 1px solid var(--glass-border);
+            color: rgba(255,255,255,0.88); padding: 10px 20px;
+            border-radius: 50px; font-size: 0.82rem;
+            backdrop-filter: blur(12px); z-index: 999;
+            opacity: 0; transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none; white-space: nowrap;
+        }
+        #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        /* ═══════════════════════════════════════════════════════════
+           RESPONSIVE — Tablet / Mobile (< 768px)
+           ═══════════════════════════════════════════════════════════ */
+        @media (max-width: 768px) {
+            body { overflow-y: auto; }
+            .app-card { flex-direction: column; height: auto; min-height: 100vh; }
+            .left-panel { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.07); }
+
+            /* On mobile: news collapses by default */
+            #news-section.mobile-collapsed .news-list { display: none; }
+            #news-section.mobile-collapsed .severe-alert-banner { display: none; }
+            .news-toggle-btn { display: inline-block; }
+
+            #news-section { max-height: none; flex: none; }
+
+            /* Right panel */
+            .right-content { padding: 56px 20px 24px; }
+            .map-pill-btn {
+                /* On mobile: floating action button bottom-right */
+                position: fixed; bottom: 20px; right: 20px; top: auto;
+                border-radius: 999px; padding: 10px 18px;
+                font-size: 0.8rem;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            }
+
+            /* Stat cards: 2 columns */
+            .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .stat-card-value { font-size: 1.25rem; }
+
+            /* Chart: smaller height */
+            .chart-wrap-new { height: 220px; }
+            .chart-header { flex-direction: column; align-items: flex-start; }
+
+            /* Modal: full screen */
+            .map-modal { padding: 0; }
+            .map-modal-container { border-radius: 0; border: none; max-width: 100vw; height: 100vh; }
+        }
+
+        /* ── Extra small (< 480px) ────────────────────────────────── */
+        @media (max-width: 480px) {
+            .right-content { padding: 56px 16px 20px; }
+            .condition-heading { font-size: 1.9rem; }
+        }
+    </style>
+</head>
+<body id="app-body">
+<div class="app-card">
+
+    <!-- ══════════════════════ LEFT PANEL ══════════════════════ -->
+    <div class="left-panel" id="left-panel">
+
+        <!-- Weather particle canvas (z-index 0, behind everything) -->
+        <div id="weather-fx"></div>
+
+        <!-- Search bar -->
+        <div class="search-wrapper">
+            <div class="search-bar">
+                <span class="icon-cloud">🌤</span>
+                <input type="text" id="city-input" placeholder="ex. London, New York…" autocomplete="off" aria-label="Search city">
+                <!-- Geolocation button -->
+                {% if user.is_authenticated %}
+                <button class="icon-btn" id="geo-btn" aria-label="Use my location" title="Use my location">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="9" stroke-opacity=".3"/></svg>
+                </button>
+                <!-- Favourite (star) button -->
+                <button class="icon-btn" id="fav-btn" aria-label="Save to favourites" title="Save to favourites">⭐</button>
+                {% else %}
+                <button class="icon-btn is-disabled" id="geo-btn" aria-label="Sign in to use location" title="Sign in to use location">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="9" stroke-opacity=".3"/></svg>
+                </button>
+                <button class="icon-btn is-disabled" id="fav-btn" aria-label="Sign in to save favourites" title="Sign in to save favourites">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                </button>
+                {% endif %}
+                <!-- Search button -->
+                <button class="icon-btn" id="search-btn" aria-label="Search" title="Search">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+            </div>
+            <div class="ac-dropdown" id="ac-dropdown" role="listbox"></div>
+        </div>
+
+        <!-- Favourites chips -->
+        <div id="fav-row" role="list" aria-label="Favourite cities"></div>
+
+        <!-- Loading skeleton -->
+        <div id="left-loading">
+            <div class="skeleton" style="width:110px;height:84px;border-radius:20px;"></div>
+            <div class="skeleton" style="width:160px;height:13px;margin-top:4px;"></div>
+            <div class="skeleton" style="width:130px;height:13px;"></div>
+            <div class="skeleton" style="width:110px;height:13px;"></div>
+        </div>
+
+        <!-- Empty state -->
+        <div class="left-empty" id="left-empty">
+            <span class="e-icon">🌍</span>
+            <p>Search for a city<br>to see the weather</p>
+        </div>
+
+        <!-- Weather stats block -->
+        <div class="temp-block" id="temp-block" style="display:none;">
+            <!-- Temperature pill + °C/°F toggle on the same row -->
+            <div class="temp-pill-row">
+                <div class="temp-pill">
+                    <span class="temp-num" id="temp-num">--</span>
+                    <span class="temp-deg" id="temp-deg-sym">°</span>
+                </div>
+                <!-- °C/°F toggle lives here now -->
+                <div class="unit-toggle" id="unit-toggle">
+                    <button class="unit-btn active" id="btn-c" data-unit="C" aria-label="Switch to Celsius">°C</button>
+                    <button class="unit-btn" id="btn-f" data-unit="F" aria-label="Switch to Fahrenheit">°F</button>
+                </div>
+            </div>
+            <div class="feels-row">Feels like: &nbsp;<strong id="feels-val">--</strong></div>
+            <div class="stat-list">
+                <div class="stat-line"><span class="val" id="humidity-val">--%</span> <span>of humidity</span></div>
+                <div class="stat-line"><span class="val" id="clouds-val">--%</span> <span>of clouds</span></div>
+            </div>
+        </div>
+
+        <!-- SMS Alerts Card -->
+        {% if user.is_authenticated %}
+        <div id="sms-card" class="sms-card">
+            <div class="sms-card-header" id="sms-card-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="sms-card-body">
+                <div class="sms-header-left">
+                    <span class="sms-bell-icon">🔔</span>
+                    <span class="sms-title">SMS Weather Alerts</span>
+                </div>
+                <span class="sms-chevron" id="sms-chevron" aria-hidden="true">▾</span>
+            </div>
+            <div class="sms-card-body" id="sms-card-body" style="display:none;">
+                <div class="sms-city-pill">
+                    <span>Alerts for: </span>
+                    <strong id="sms-target-city">--</strong>
+                </div>
+                <!-- Step 1: Subscribe Form -->
+                <div id="sms-sub-step">
+                    <div class="sms-field">
+                        <label for="sms-phone-input">Phone Number (E.164)</label>
+                        <input type="tel" id="sms-phone-input" placeholder="+919876543210" autocomplete="tel">
+                        <span class="sms-hint">Format: +[CountryCode][Number] e.g. +919876543210</span>
+                    </div>
+                    <div class="sms-field">
+                        <label for="sms-time-input">Daily Morning Update Time</label>
+                        <input type="time" id="sms-time-input" value="07:00">
+                    </div>
+                    <div class="sms-toggles">
+                        <label class="sms-toggle-label">
+                            <input type="checkbox" id="sms-toggle-morning" checked>
+                            <span>Morning weather forecast SMS</span>
+                        </label>
+                        <label class="sms-toggle-label">
+                            <input type="checkbox" id="sms-toggle-alerts" checked>
+                            <span>Severe weather warnings (storms/rain)</span>
+                        </label>
+                    </div>
+                    <button class="sms-btn" id="sms-send-otp-btn">Send Verification Code</button>
+                </div>
+                <!-- Step 2: OTP Verification -->
+                <div id="sms-otp-step" style="display:none;">
+                    <p class="sms-otp-notice">Verification code sent to <strong id="sms-otp-phone-display"></strong>. Enter code:</p>
+                    <div class="sms-field" style="margin:8px 0;">
+                        <input type="text" id="sms-otp-input" placeholder="123456" maxlength="6" autocomplete="one-time-code">
+                    </div>
+                    <div class="sms-btn-row">
+                        <button class="sms-btn" id="sms-verify-otp-btn">Verify &amp; Subscribe</button>
+                        <button class="sms-btn-secondary" id="sms-otp-back-btn">Back</button>
+                    </div>
+                </div>
+                <!-- Step 3: Success -->
+                <div id="sms-success-step" style="display:none;">
+                    <div class="sms-success-badge">You're subscribed ✅</div>
+                    <p class="sms-success-text" id="sms-success-msg">Weather SMS updates will be delivered to your phone.</p>
+                    <button class="sms-btn-secondary" id="sms-another-btn" style="margin-top:8px;">Manage / Subscribe Another</button>
+                </div>
+                <!-- Status / Error Notification -->
+                <div id="sms-status-msg" class="sms-status-msg" style="display:none;"></div>
+                <!-- Unsubscribe -->
+                <div class="sms-unsub-footer">
+                    <a href="#" id="sms-unsub-toggle-link">Unsubscribe from SMS</a>
+                </div>
+                <div id="sms-unsub-box" style="display:none;">
+                    <div class="sms-field" style="margin-top:6px;">
+                        <input type="tel" id="sms-unsub-phone" placeholder="Phone to unsubscribe e.g. +919876543210">
+                    </div>
+                    <button class="sms-btn-secondary" id="sms-unsub-btn" style="width:100%;margin-top:6px;">Confirm Unsubscribe</button>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="locked-card locked-compact">
+            <div class="locked-compact-left">
+                <div class="locked-icon-badge">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><circle cx="18" cy="4" r="3" fill="#f97316" stroke="none"/></svg>
+                </div>
+                <div class="locked-compact-text">
+                    <div class="locked-title">SMS Weather Alerts</div>
+                    <div class="locked-sub">Morning forecasts &amp; severe storm warnings</div>
+                </div>
+            </div>
+            <a href="{% url 'account_login' %}" class="locked-btn-sm auth-dynamic-link">Sign in</a>
+        </div>
+        {% endif %}
+
+        <!-- Weather News Section -->
+        {% if user.is_authenticated %}
+        <div id="news-section" style="display:none;">
+            <div class="news-header">
+                <span class="news-title">📰 Weather News</span>
+                <span class="news-city" id="news-city-label"></span>
+                <!-- Mobile collapse toggle -->
+                <button class="news-toggle-btn" id="news-toggle-btn" aria-label="Toggle news">▾</button>
+            </div>
+            <!-- Severe weather alert banner -->
+            <div id="severe-alert-banner" class="severe-alert-banner" style="display:none;">
+                <span class="alert-icon">⚠️</span>
+                <div class="alert-body">
+                    <span class="alert-tag">Severe Weather Alert</span>
+                    <a id="severe-alert-link" class="alert-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+                </div>
+            </div>
+            <!-- Scrollable list -->
+            <div class="news-list" id="news-list"></div>
+        </div>
+        {% else %}
+        <div class="locked-card locked-compact" style="margin-top:auto;">
+            <div class="locked-compact-left">
+                <div class="locked-icon-badge">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1m2 13a2 2 0 0 1-2-2V7m2 13a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"/></svg>
+                </div>
+                <div class="locked-compact-text">
+                    <div class="locked-title">Weather News</div>
+                    <div class="locked-sub">Real-time local headlines &amp; severe advisories</div>
+                </div>
+            </div>
+            <a href="{% url 'account_login' %}" class="locked-btn-sm auth-dynamic-link">Sign in</a>
+        </div>
+        {% endif %}
+
+    </div><!-- /left-panel -->
+
+    <!-- ══════════════════════ RIGHT PANEL ═════════════════════ -->
+    <div class="right-panel">
+
+        <!-- Top action buttons (Map + User Auth) in top-right corner of right panel -->
+        <div class="top-actions">
+            {% if user.is_authenticated %}
+            <button class="top-pill-btn map-pill-btn" id="open-map-btn" aria-label="Open Interactive India Weather Map" aria-haspopup="dialog">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                <span>India Weather Map</span>
+            </button>
+            <div class="user-dropdown-wrap">
+                <button class="user-avatar-btn" id="user-menu-btn" aria-label="User menu" aria-haspopup="true" aria-expanded="false">
+                    {{ user.first_name|default:user.email|slice:":1"|upper }}
+                </button>
+                <div class="user-dropdown-menu" id="user-dropdown-menu" role="menu">
+                    <div class="user-info-box">
+                        <div class="user-info-name">{{ user.get_full_name|default:user.email }}</div>
+                        <div class="user-info-email">{{ user.email }}</div>
+                    </div>
+                    <form method="post" action="{% url 'account_logout' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="user-logout-btn" role="menuitem">Log out</button>
+                    </form>
+                </div>
+            </div>
+            {% else %}
+            <a href="{% url 'account_login' %}" class="top-pill-btn map-pill-btn auth-dynamic-link" aria-label="Sign in to view India Weather Map">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>India Weather Map</span>
+            </a>
+            <a href="{% url 'account_login' %}" class="top-pill-btn auth-pill-btn auth-dynamic-link" aria-label="Sign in to your account">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span>Sign in</span>
+            </a>
+            <a href="{% url 'account_signup' %}" class="top-pill-btn auth-pill-btn signup-pill-btn auth-dynamic-link" aria-label="Create an account">
+                <span>Sign up</span>
+            </a>
+            {% endif %}
+        </div>
+
+        <div class="right-content">
+
+            <div id="right-empty">
+                <span class="e-icon">⛅</span>
+                <p>Enter a city to view the forecast</p>
+            </div>
+
+            <div id="right-loading">
+                <div class="spinner"></div>
+            </div>
+
+            <div id="right-weather">
+                <!-- Hero heading -->
+                <div class="fc-label">WEATHER FORECAST</div>
+                <h1 class="condition-heading" id="condition-heading"></h1>
+                <div class="location-row">
+                    <span>📍</span><span id="location-text"></span>
+                </div>
+
+                <!-- Wind / pressure / visibility detail paragraph -->
+                <p class="detail-para" id="detail-para" style="display:none;"></p>
+
+                <!-- ML Rain badge -->
+                <div class="rain-badge" id="rain-badge" style="display:none;"></div>
+                <div id="locked-rain-badge" style="display:none;">
+                    <a href="{% url 'account_login' %}" class="locked-rain-pill auth-dynamic-link" aria-label="Sign in for rain prediction">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <span>Sign in for rain prediction</span>
+                    </a>
+                </div>
+
+                <!-- ── 4 glass stat cards ───────────────────────────── -->
+                <div class="stat-cards" id="stat-cards" style="display:none;">
+                    <!-- Wind -->
+                    <div class="stat-card">
+                        <span class="stat-card-icon">💨</span>
+                        <span class="stat-card-label">Wind</span>
+                        <span class="stat-card-value" id="sc-wind">--</span>
+                        <span class="stat-card-unit" id="sc-wind-dir">--</span>
+                    </div>
+                    <!-- Pressure -->
+                    <div class="stat-card">
+                        <span class="stat-card-icon">🧭</span>
+                        <span class="stat-card-label">Pressure</span>
+                        <span class="stat-card-value" id="sc-pressure">--</span>
+                        <span class="stat-card-unit">mb</span>
+                    </div>
+                    <!-- Visibility -->
+                    <div class="stat-card">
+                        <span class="stat-card-icon">👁️</span>
+                        <span class="stat-card-label">Visibility</span>
+                        <span class="stat-card-value" id="sc-vis">--</span>
+                        <span class="stat-card-unit">km</span>
+                    </div>
+                    <!-- Min / Max temperature -->
+                    <div class="stat-card">
+                        <span class="stat-card-icon">🌡️</span>
+                        <span class="stat-card-label">Min / Max</span>
+                        <span class="stat-card-value" id="sc-minmax">-- / --</span>
+                        <span class="stat-card-unit" id="sc-minmax-unit">°C</span>
+                    </div>
+                </div>
+
+                <!-- ── Forecast chart glass card ───────────────────── -->
+                {% if user.is_authenticated %}
+                <div id="forecast-area" style="display:none;">
+                    <div class="chart-glass">
+                        <div class="chart-header">
+                            <!-- Title + ⓘ info tooltip -->
+                            <div class="chart-title-row">
+                                <span>5-Day Forecast</span>
+                                <span class="chart-info-btn" aria-label="About ML line">
+                                    ⓘ
+                                    <span class="tooltip-text">
+                                        3-lag hourly RandomForest forecast trained on India historical weather data (Open-Meteo). Compare it with the real OpenWeather forecast.
+                                    </span>
+                                </span>
+                            </div>
+                            <!-- Toggle buttons -->
+                            <div class="chart-controls">
+                                <div class="metric-btns">
+                                    <button class="ctrl-btn metric-btn active" data-metric="temp">🌡️ Temp</button>
+                                    <button class="ctrl-btn metric-btn" data-metric="humidity">💧 Humidity</button>
+                                    <button class="ctrl-btn metric-btn" data-metric="rain">🌧️ Rain %</button>
+                                </div>
+                                <div class="view-btns">
+                                    <button class="ctrl-btn view-btn active" data-view="24h">24 h</button>
+                                    <button class="ctrl-btn view-btn" data-view="5d">5 d</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chart-wrap-new">
+                            <canvas id="forecast-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div id="forecast-area" class="locked-chart-card" style="display:none;">
+                    <div class="locked-chart-header">
+                        <div class="locked-chart-title">
+                            <span>5-Day Forecast &amp; ML Prediction</span>
+                        </div>
+                        <span class="locked-chart-badge">PRO FEATURE</span>
+                    </div>
+                    <!-- Subtle dashed SVG curve mimicking a temperature chart with low opacity -->
+                    <svg class="locked-chart-bg-svg" viewBox="0 0 600 160" preserveAspectRatio="none">
+                        <path d="M0,120 Q80,40 160,80 T320,60 T480,110 T600,40" fill="none" stroke="#f97316" stroke-width="2.5" stroke-dasharray="6 6" />
+                        <path d="M0,140 Q100,90 200,110 T400,90 T600,80" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2" stroke-dasharray="4 4" />
+                    </svg>
+                    <div class="locked-chart-center">
+                        <div class="locked-icon-badge">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        </div>
+                        <div style="font-size:0.95rem; font-weight:600; color:#fff;">Interactive Forecast &amp; Machine Learning Trajectory</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted); max-width:420px; line-height:1.4;">Sign in to explore 5-day hourly temperature, humidity, rainfall charts, and RandomForest ML comparisons.</div>
+                        <a href="{% url 'account_login' %}" class="locked-chart-btn auth-dynamic-link">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            <span>Sign in to unlock</span>
+                        </a>
+                    </div>
+                </div>
+                {% endif %}
+
+            </div><!-- /right-weather -->
+
+        </div><!-- /right-content -->
+    </div><!-- /right-panel -->
+
+</div><!-- /app-card -->
+
+<!-- India Weather Map Modal -->
+<div id="map-modal" class="map-modal" role="dialog" aria-modal="true" aria-label="Interactive India Weather Map" style="display:none;">
+    <div class="map-modal-backdrop" id="map-modal-backdrop"></div>
+    <div class="map-modal-container">
+        <div class="map-modal-header">
+            <div class="map-modal-title">
+                <span>🗺️</span> India Live Weather Map
+                <span class="badge">Live &bull; Folium</span>
+            </div>
+            <button class="map-modal-close" id="map-modal-close-btn" aria-label="Close India Weather Map">✕</button>
+        </div>
+        <div class="map-modal-body">
+            <div class="map-loading" id="map-loading">
+                <div class="spinner"></div>
+                <span>Loading live weather map...</span>
+            </div>
+            <iframe id="map-iframe" class="map-iframe" src="" title="Interactive India Weather Map" frameborder="0"></iframe>
+        </div>
+    </div>
+</div>
+
+<!-- Toast notification -->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   WEATHER APP  v5  –  Redesigned layout, same AJAX/feature surface
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Chart dataset styles ───────────────────────────────────────────────── */
+/* DS_ML_TEMP renamed label; also made thinner + more transparent */
+var DS_TEMP    = { label:'Temperature', borderColor:'#f97316', backgroundColor:'rgba(249,115,22,0.08)', borderWidth:2.5, pointRadius:3, pointHoverRadius:6, tension:0.4, fill:true };
+var DS_ML_TEMP = { label:'ML Prediction', borderColor:'rgba(251, 146, 60, 0.85)', backgroundColor:'transparent', borderWidth:2, borderDash:[6,4], pointRadius:2.5, pointHoverRadius:5, tension:0.4, fill:false };
+var DS_HUMID   = { label:'Humidity (%)', borderColor:'#60a5fa', backgroundColor:'rgba(96,165,250,0.08)', borderWidth:2.5, pointRadius:3, pointHoverRadius:6, tension:0.4, fill:true };
+var DS_RAIN    = { label:'Rain Chance (%)', borderColor:'#34d399', backgroundColor:'rgba(52,211,153,0.10)', borderWidth:2.5, pointRadius:3, pointHoverRadius:6, tension:0.4, fill:true };
+
+/* ── Global state ───────────────────────────────────────────────────────── */
+var forecastChart   = null;
+var cachedForecast  = null;
+var cachedWeather   = null;
+var currentMetric   = 'temp';
+var currentView     = '24h';
+var currentUnit     = localStorage.getItem('weatherUnit') || 'C';
+var currentCity     = '';
+var pendingPhone    = '';
+
+/* ── CSRF cookie helper ─────────────────────────────────────────────────── */
+function getCookie(name) {
+    var cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        var cookies = document.cookie.split(';');
+        for (var i = 0; i < cookies.length; i++) {
+            var cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+/* ── Unit helpers ───────────────────────────────────────────────────────── */
+function toDisplay(c)  { return currentUnit === 'F' ? Math.round(c * 9/5 + 32) : Math.round(c); }
+function toDisplayF(c) { return currentUnit === 'F' ? Math.round((c * 9/5 + 32) * 10) / 10 : c; }
+function unitLabel()   { return currentUnit === 'F' ? '°F' : '°C'; }
+
+/* ── Time ago helper ────────────────────────────────────────────────────── */
+function timeAgo(isoStr) {
+    if (!isoStr) return '';
+    var date = new Date(isoStr);
+    if (isNaN(date.getTime())) return '';
+    var diffMs = Date.now() - date.getTime();
+    if (diffMs < 0) diffMs = 0;
+    var mins = Math.floor(diffMs / (60 * 1000));
+    if (mins < 60) return (mins <= 1 ? '1m' : mins + 'm') + ' ago';
+    var hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + 'h ago';
+    return Math.floor(hours / 24) + 'd ago';
+}
+
+/* ── Toast helper ───────────────────────────────────────────────────────── */
+var _toastTimer = null;
+function showToast(msg, duration) {
+    duration = duration || 2800;
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function(){ t.classList.remove('show'); }, duration);
+}
+
+/* ── Chart init ─────────────────────────────────────────────────────────── */
+function initChart() {
+    var ctx = document.getElementById('forecast-chart');
+    if (!ctx || forecastChart) return;
+    forecastChart = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    labels: {
+                        /* Fully white legend labels, slightly larger */
+                        color: 'rgba(255,255,255,0.85)',
+                        font: { family:'Inter', size:12 },
+                        usePointStyle: true
+                    }
+                },
+                tooltip: {
+                    backgroundColor:'rgba(8,12,24,0.92)',
+                    titleColor:'rgba(255,255,255,0.9)',
+                    bodyColor:'rgba(255,255,255,0.65)',
+                    borderColor:'rgba(255,255,255,0.1)',
+                    borderWidth:1, padding:12, cornerRadius:10
+                }
+            },
+            scales: {
+                /* Fully white axis ticks at 12px */
+                x: { ticks:{ color:'rgba(255,255,255,0.80)', font:{size:12,family:'Inter'}, maxTicksLimit:10, maxRotation:30 }, grid:{ color:'rgba(255,255,255,0.06)' }, border:{ color:'rgba(255,255,255,0.1)' } },
+                y: { ticks:{ color:'rgba(255,255,255,0.80)', font:{size:12,family:'Inter'} }, grid:{ color:'rgba(255,255,255,0.06)' }, border:{ color:'rgba(255,255,255,0.1)' } }
+            }
+        }
+    });
+}
+
+/* ── Render chart ───────────────────────────────────────────────────────── */
+function renderChart() {
+    if (!cachedForecast || !forecastChart) return;
+    var n       = currentView === '24h' ? 8 : cachedForecast.entries.length;
+    var entries = cachedForecast.entries.slice(0, n);
+    var ml_t    = Array.isArray(cachedForecast.ml_temps) ? cachedForecast.ml_temps.slice(0, n) : [];
+    var DAYS    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var labels  = entries.map(function(e) {
+        var parts = e.timestamp.split(' ');
+        var time  = parts[1] ? parts[1].substring(0,5) : '';
+        if (currentView === '5d') {
+            var dp = parts[0].split('-');
+            var d  = new Date(parseInt(dp[0]), parseInt(dp[1])-1, parseInt(dp[2]));
+            return DAYS[d.getDay()] + ' ' + time;
+        }
+        return time;
+    });
+    var ds = [];
+    if (currentMetric === 'temp') {
+        var tempLabel = 'Temperature (' + unitLabel() + ')';
+        var mlLabel   = 'ML Prediction (' + unitLabel() + ')';
+        ds.push(Object.assign({}, DS_TEMP, { label: tempLabel, data: entries.map(function(e){ return toDisplayF(e.temp); }) }));
+        if (ml_t.length) ds.push(Object.assign({}, DS_ML_TEMP, { label: mlLabel, data: ml_t.map(function(v){ return toDisplayF(v); }) }));
+    } else if (currentMetric === 'humidity') {
+        ds.push(Object.assign({}, DS_HUMID, { data: entries.map(function(e){ return e.humidity; }) }));
+    } else {
+        ds.push(Object.assign({}, DS_RAIN,  { data: entries.map(function(e){ return e.rain_probability; }) }));
+    }
+    forecastChart.data.labels   = labels;
+    forecastChart.data.datasets = ds;
+    forecastChart.update();
+}
+
+/* ── Metric / view toggles ──────────────────────────────────────────────── */
+function setMetric(m) {
+    currentMetric = m;
+    document.querySelectorAll('.metric-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.metric === m); });
+    renderChart();
+}
+function setView(v) {
+    currentView = v;
+    document.querySelectorAll('.view-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.view === v); });
+    renderChart();
+}
+
+/* ── Unit toggle ────────────────────────────────────────────────────────── */
+function setUnit(u, syncServer) {
+    if (syncServer === undefined) syncServer = true;
+    currentUnit = u;
+    localStorage.setItem('weatherUnit', u);
+    document.getElementById('btn-c').classList.toggle('active', u === 'C');
+    document.getElementById('btn-f').classList.toggle('active', u === 'F');
+    if (cachedWeather) refreshTempDisplay();
+    renderChart();
+
+    if (syncServer && window.IS_AUTHENTICATED) {
+        fetch('/api/profile/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken') || ''
+            },
+            body: JSON.stringify({ units: u })
+        }).catch(function(e){ console.error('Failed to sync unit preference:', e); });
+    }
+}
+
+function refreshTempDisplay() {
+    var d = cachedWeather;
+    document.getElementById('temp-num').textContent  = toDisplay(d._raw_temp);
+    document.getElementById('feels-val').textContent = toDisplay(d._raw_feels_like) + unitLabel();
+    var detailPara = document.getElementById('detail-para');
+    if (detailPara) {
+        detailPara.textContent = 'Wind ' + d.wind_kph + ' km/h. Pressure is ' + d.pressure +
+            ' mb. Visibility is ' + d.visibility + '. Max ' + toDisplay(d._raw_temp_max) +
+            unitLabel() + '. Min ' + toDisplay(d._raw_temp_min) + unitLabel() + '.';
+    }
+    /* Update the 4 stat cards on unit switch */
+    updateStatCards(d);
+}
+
+/* ── Update the 4 glass stat cards ─────────────────────────────────────── */
+function updateStatCards(d) {
+    var el = function(id){ return document.getElementById(id); };
+    el('sc-wind').textContent     = d.wind_kph + ' km/h';
+    el('sc-wind-dir').textContent = d.wind_direction || '--';
+    el('sc-pressure').textContent = d.pressure || '--';
+    var visM = d.visibility;
+    var visKm = (typeof visM === 'number') ? (visM / 1000).toFixed(1) : visM;
+    el('sc-vis').textContent      = visKm;
+    el('sc-minmax').textContent   = toDisplay(d._raw_temp_min) + ' / ' + toDisplay(d._raw_temp_max);
+    el('sc-minmax-unit').textContent = unitLabel();
+    el('stat-cards').style.display = '';
+}
+
+/* ── Background image ───────────────────────────────────────────────────── */
+function applyBg(url) {
+    var body = document.getElementById('app-body') || document.body;
+    if (!url) return;
+    var img = new Image();
+    img.onload   = function(){ body.style.backgroundImage = "url('" + url + "')"; };
+    img.onerror  = function(){ body.style.backgroundImage = "url('https://picsum.photos/seed/city/1920/1080')"; };
+    img.src = url;
+    body.style.backgroundSize = 'cover';
+    body.style.backgroundPosition = 'center';
+    body.style.backgroundRepeat = 'no-repeat';
+    body.style.backgroundAttachment = 'fixed';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WEATHER EFFECTS  (unchanged logic, opacity lowered in CSS)
+   ══════════════════════════════════════════════════════════════════════════ */
+function applyWeatherEffect(description, rainResult) {
+    var container = document.getElementById('weather-fx');
+    var leftPanel = document.getElementById('left-panel');
+    if (!container || !leftPanel) return;
+    container.innerHTML = '';
+    delete leftPanel.dataset.weather;
+    var desc = (description || '').toLowerCase();
+    var rr   = rainResult || '';
+    var type = 'none';
+    if      (desc.includes('thunder') || desc.includes('storm'))                                       type = 'thunder';
+    else if (desc.includes('snow') || desc.includes('sleet') || desc.includes('blizzard'))             type = 'snow';
+    else if (desc.includes('rain') || desc.includes('drizzle') || desc.includes('shower'))             type = 'rain';
+    else if (desc.includes('mist') || desc.includes('fog') || desc.includes('haze') || desc.includes('smoke')) type = 'mist';
+    else if (desc.includes('cloud') || desc.includes('overcast'))                                      type = 'cloudy';
+    else if (desc.includes('clear') || desc.includes('sunny'))                                         type = 'sunny';
+    if (rr === 'Yes' && (type === 'none' || type === 'mist' || type === 'cloudy')) type = 'rain';
+    if (type === 'none') return;
+    leftPanel.dataset.weather = type;
+    var rnd = function(a,b){ return Math.random()*(b-a)+a; };
+    function mk(tag, styles) { var d=document.createElement(tag); if(styles) Object.keys(styles).forEach(function(k){ d.style[k]=styles[k]; }); return d; }
+
+    function makeRain(n) { for(var i=0;i<n;i++){ var len=rnd(14,32),spd=rnd(0.5,1.2); var d=mk('div',{left:rnd(0,100)+'%',top:rnd(-20,0)+'%',height:len+'px',animationDuration:spd+'s',animationDelay:rnd(0,2)+'s'}); d.className='rain-drop'; container.appendChild(d); } }
+    function makeLightning() { for(var i=0;i<3;i++){ var b=mk('div',{left:rnd(20,80)+'%',animationDuration:(2+i*1.3)+'s',animationDelay:rnd(0,2)+'s'}); b.className='lightning-bolt'; container.appendChild(b); } }
+    function makeSnow() { for(var i=0;i<55;i++){ var sz=rnd(2,6); var f=mk('div',{left:rnd(0,100)+'%',top:rnd(-10,0)+'%',width:sz+'px',height:sz+'px',animationDuration:rnd(2,5)+'s',animationDelay:rnd(0,4)+'s'}); f.className='snow-flake'; container.appendChild(f); } }
+    function makeSunny() {
+        var wrap=mk('div'); wrap.className='sun-wrap';
+        var halo=mk('div'); halo.className='sun-halo'; wrap.appendChild(halo);
+        var ring=mk('div'); ring.className='sun-rays-ring';
+        for(var i=0;i<10;i++){ var ray=mk('div'); ray.className='sun-ray'; ray.style.transform='rotate('+(i/10*360)+'deg) translateY(-52px)'; ring.appendChild(ray); }
+        wrap.appendChild(ring); var core=mk('div'); core.className='sun-core'; wrap.appendChild(core); container.appendChild(wrap);
+        for(var j=0;j<20;j++){ var sz=rnd(3,7); var sp=mk('div',{width:sz+'px',height:sz+'px',left:rnd(8,88)+'%',bottom:rnd(8,82)+'%',animationDuration:rnd(1.4,3.6)+'s',animationDelay:rnd(0,3.5)+'s'}); sp.className='sun-sparkle'; container.appendChild(sp); }
+    }
+    function makeCloudy() {
+        var ns='http://www.w3.org/2000/svg';
+        [{top:'10%',dur:30,delay:0,w:130,h:65,op:.20},{top:'32%',dur:46,delay:-16,w:95,h:48,op:.14},{top:'55%',dur:38,delay:-8,w:155,h:78,op:.16},{top:'74%',dur:58,delay:-24,w:110,h:55,op:.11}].forEach(function(c){
+            var wrap=mk('div',{top:c.top,opacity:c.op,animationDuration:c.dur+'s',animationDelay:c.delay+'s'}); wrap.className='cloud-shape';
+            var svg=document.createElementNS(ns,'svg'); svg.setAttribute('width',c.w); svg.setAttribute('height',c.h); svg.setAttribute('viewBox','0 0 130 65');
+            [{cx:65,cy:50,rx:58,ry:18},{cx:48,cy:42,rx:32,ry:22},{cx:76,cy:36,rx:30,ry:24},{cx:58,cy:32,rx:24,ry:22},{cx:88,cy:44,rx:22,ry:18}].forEach(function(e){
+                var el=document.createElementNS(ns,'ellipse'); Object.entries(e).forEach(function(kv){el.setAttribute(kv[0],kv[1]);}); el.setAttribute('fill','#b8c8d8'); svg.appendChild(el);
+            }); wrap.appendChild(svg); container.appendChild(wrap);
+        });
+    }
+    function makeMist() {
+        [{top:'18%',dur:13,delay:0},{top:'34%',dur:19,delay:-5},{top:'50%',dur:16,delay:-9},{top:'65%',dur:22,delay:-3},{top:'80%',dur:15,delay:-12},{top:'90%',dur:25,delay:-7}].forEach(function(s){
+            var d=mk('div',{top:s.top,animationDuration:s.dur+'s',animationDelay:s.delay+'s'}); d.className='mist-strip'; container.appendChild(d);
+        });
+    }
+    switch(type){
+        case 'rain':    makeRain(65); break;
+        case 'thunder': makeRain(45); makeLightning(); break;
+        case 'snow':    makeSnow(); break;
+        case 'sunny':   makeSunny(); break;
+        case 'cloudy':  makeCloudy(); break;
+        case 'mist':    makeMist(); break;
+    }
+}
+
+/* ── Loading / error helpers ────────────────────────────────────────────── */
+function showLoading() {
+    ['temp-block','left-empty','news-section','stat-cards'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+    ['right-weather','right-empty'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+    document.getElementById('left-loading').style.display  = 'flex';
+    document.getElementById('right-loading').style.display = 'flex';
+}
+function showError(msg) {
+    ['left-loading','right-loading'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+    var le=document.getElementById('left-empty');
+    if(le){
+        le.style.display='flex';
+        le.innerHTML = '<span class="e-icon">⚠️</span><p style="font-size:0.88rem;color:rgba(255,255,255,0.7);">' + (msg || 'Could not load weather.') + '</p><button class="locked-btn-sm" style="margin-top:10px;cursor:pointer;" onclick="retrySearch()">Retry</button>';
+    }
+    var re=document.getElementById('right-empty');
+    if(re){
+        re.style.display='flex';
+        re.innerHTML = '<span class="e-icon">⛅</span><p style="font-size:0.88rem;color:rgba(255,255,255,0.7);">' + (msg || 'Weather data unavailable.') + '</p>';
+    }
+    var ns=document.getElementById('news-section');
+    if(ns) ns.style.display='none';
+}
+function retrySearch() {
+    var city = currentCity;
+    if (!city) {
+        try { city = localStorage.getItem('lastCity'); } catch(e){}
+    }
+    searchCity(city || 'Coimbatore');
+}
+
+/* ── Update weather display ─────────────────────────────────────────────── */
+function updateWeather(data) {
+    if (data.city_image && data.city_image.image_url) applyBg(data.city_image.image_url);
+
+    /* Store raw °C values for unit switching */
+    data._raw_temp       = data.temp;
+    data._raw_feels_like = data.feels_like;
+    data._raw_temp_max   = data.temp_max;
+    data._raw_temp_min   = data.temp_min;
+    cachedWeather = data;
+
+    /* Left panel basics */
+    document.getElementById('temp-num').textContent     = toDisplay(data.temp);
+    document.getElementById('feels-val').textContent    = toDisplay(data.feels_like) + unitLabel();
+    document.getElementById('humidity-val').textContent = data.humidity + '%';
+    document.getElementById('clouds-val').textContent   = data.clouds + '%';
+
+    document.getElementById('left-loading').style.display = 'none';
+    document.getElementById('left-empty').style.display   = 'none';
+    document.getElementById('temp-block').style.display   = '';
+
+    applyWeatherEffect(data.description, data.rain_result);
+
+    /* Right panel hero */
+    var heading = document.getElementById('condition-heading');
+    heading.textContent = data.description;
+    heading.classList.remove('fade-in');
+    void heading.offsetWidth; /* reflow to restart animation */
+    heading.classList.add('fade-in');
+
+    document.getElementById('location-text').textContent =
+        data.city + (data.country ? ' ' + data.country : '') + '   ' + data.current_datetime;
+
+    var detailPara = document.getElementById('detail-para');
+    if (detailPara) {
+        detailPara.textContent = 'Wind ' + data.wind_kph + ' km/h. Pressure is ' + data.pressure +
+            ' mb. Visibility is ' + data.visibility + '. Max ' + toDisplay(data.temp_max) +
+            unitLabel() + '. Min ' + toDisplay(data.temp_min) + unitLabel() + '.';
+        detailPara.style.display = '';
+    }
+
+    /* Rain badge */
+    var badge = document.getElementById('rain-badge');
+    var lockedBadge = document.getElementById('locked-rain-badge');
+    if (window.APP && window.APP.authenticated) {
+        if (lockedBadge) lockedBadge.style.display = 'none';
+        if (badge && data.rain_result) {
+            var icon  = data.rain_result === 'Yes' ? '🌧️' : '☀️';
+            var label = data.rain_result === 'Yes' ? 'Rain expected tomorrow' : 'No rain expected tomorrow';
+            var conf  = data.rain_confidence ? ' <span class="conf">· ' + data.rain_confidence + '% confidence</span>' : '';
+            badge.innerHTML = icon + ' ' + label + conf;
+            badge.style.display = '';
+        } else if (badge) {
+            badge.style.display = 'none';
+        }
+    } else {
+        if (badge) badge.style.display = 'none';
+        if (lockedBadge) lockedBadge.style.display = 'block';
+    }
+
+    /* 4 stat cards */
+    updateStatCards(data);
+
+    document.getElementById('right-loading').style.display = 'none';
+    document.getElementById('right-empty').style.display   = 'none';
+    document.getElementById('right-weather').style.display = 'flex';
+
+    /* For anonymous users, ensure the locked forecast area is visible */
+    if (!window.APP || !window.APP.authenticated) {
+        var fcArea = document.getElementById('forecast-area');
+        if (fcArea) fcArea.style.display = '';
+    }
+
+    /* Sync SMS city pill */
+    var targetCityEl = document.getElementById('sms-target-city');
+    if (targetCityEl) targetCityEl.textContent = data.city;
+
+    refreshFavBtn();
+    if (window.APP && window.APP.authenticated) {
+        loadNews(data.city);
+    }
+}
+
+function updateForecast(data) {
+    cachedForecast = data;
+    document.getElementById('forecast-area').style.display = '';
+    renderChart();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   WEATHER NEWS
+   ══════════════════════════════════════════════════════════════════════════ */
+function loadNews(city) {
+    if (!city) return;
+    if (!window.APP || !window.APP.authenticated) return;
+    var section      = document.getElementById('news-section');
+    if (!section) return;
+    var list         = document.getElementById('news-list');
+    var cityLabel    = document.getElementById('news-city-label');
+    var severeBanner = document.getElementById('severe-alert-banner');
+    var severeLink   = document.getElementById('severe-alert-link');
+
+    section.style.display = 'flex';
+    cityLabel.textContent = city;
+    severeBanner.style.display = 'none';
+    list.innerHTML = '';
+
+    /* Shimmer skeletons */
+    for (var i = 0; i < 3; i++) {
+        var skCard = document.createElement('div');
+        skCard.className = 'news-card news-skeleton-card';
+        var skLine1 = document.createElement('div');
+        skLine1.className = 'skeleton';
+        skLine1.style.cssText = 'width:' + (75 + (i%2)*18) + '%;height:13px;margin-bottom:6px;';
+        var skLine2 = document.createElement('div');
+        skLine2.className = 'skeleton';
+        skLine2.style.cssText = 'width:42%;height:10px;';
+        skCard.appendChild(skLine1); skCard.appendChild(skLine2);
+        list.appendChild(skCard);
+    }
+
+    fetch('/api/news/?city=' + encodeURIComponent(city))
+        .then(function(r) { if (!r.ok) throw new Error('Status ' + r.status); return r.json(); })
+        .then(function(data) {
+            list.innerHTML = '';
+            var articles = data.articles || [];
+            if (articles.length === 0) {
+                var emptyEl = document.createElement('div');
+                emptyEl.className = 'news-empty';
+                emptyEl.textContent = 'No recent weather news.';
+                list.appendChild(emptyEl);
+                return;
+            }
+            var severeKeywords = ['cyclone','red alert','orange alert','heavy rain warning','flood','storm'];
+            var severeArticle = null;
+            for (var s = 0; s < articles.length; s++) {
+                var lowTitle = (articles[s].title || '').toLowerCase();
+                for (var k = 0; k < severeKeywords.length; k++) {
+                    if (lowTitle.includes(severeKeywords[k])) { severeArticle = articles[s]; break; }
+                }
+                if (severeArticle) break;
+            }
+            if (severeArticle) {
+                severeBanner.style.display = 'flex';
+                severeLink.textContent = severeArticle.title;
+                if (severeArticle.link && severeArticle.link.startsWith('https://')) {
+                    severeLink.href = severeArticle.link; severeLink.target = '_blank'; severeLink.rel = 'noopener noreferrer';
+                } else { severeLink.removeAttribute('href'); }
+            } else { severeBanner.style.display = 'none'; }
+
+            articles.forEach(function(art) {
+                var card = document.createElement('a');
+                card.className = 'news-card';
+                if (art.link && art.link.startsWith('https://')) {
+                    card.href = art.link; card.target = '_blank'; card.rel = 'noopener noreferrer';
+                }
+                var titleEl = document.createElement('div');
+                titleEl.className = 'news-card-title';
+                titleEl.textContent = art.title || 'Weather update';
+                var metaEl = document.createElement('div');
+                metaEl.className = 'news-card-meta';
+                var src = art.source || 'News';
+                var ago = timeAgo(art.published);
+                metaEl.textContent = ago ? (src + ' · ' + ago) : src;
+                card.appendChild(titleEl); card.appendChild(metaEl);
+                list.appendChild(card);
+            });
+        })
+        .catch(function(err) {
+            list.innerHTML = '';
+            var errEl = document.createElement('div');
+            errEl.className = 'news-empty';
+            errEl.textContent = 'News unavailable right now.';
+            list.appendChild(errEl);
+            console.error('Weather news error:', err);
+        });
+}
+
+/* ── Mobile news collapse ───────────────────────────────────────────────── */
+(function() {
+    var toggleBtn = document.getElementById('news-toggle-btn');
+    var section   = document.getElementById('news-section');
+    if (!toggleBtn || !section) return;
+    if (window.innerWidth < 768) section.classList.add('mobile-collapsed');
+    toggleBtn.addEventListener('click', function() {
+        section.classList.toggle('mobile-collapsed');
+        toggleBtn.textContent = section.classList.contains('mobile-collapsed') ? '▾' : '▴';
+    });
+})();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SMS ALERTS COLLAPSIBLE CARD & OTP FLOW
+   ══════════════════════════════════════════════════════════════════════════ */
+(function() {
+    var cardToggle    = document.getElementById('sms-card-toggle');
+    var cardBody      = document.getElementById('sms-card-body');
+    var chevron       = document.getElementById('sms-chevron');
+    var subStep       = document.getElementById('sms-sub-step');
+    var otpStep       = document.getElementById('sms-otp-step');
+    var successStep   = document.getElementById('sms-success-step');
+    var phoneInput    = document.getElementById('sms-phone-input');
+    var timeInput     = document.getElementById('sms-time-input');
+    var toggleMorning = document.getElementById('sms-toggle-morning');
+    var toggleAlerts  = document.getElementById('sms-toggle-alerts');
+    var sendOtpBtn    = document.getElementById('sms-send-otp-btn');
+    var otpInput      = document.getElementById('sms-otp-input');
+    var otpPhoneDisp  = document.getElementById('sms-otp-phone-display');
+    var verifyOtpBtn  = document.getElementById('sms-verify-otp-btn');
+    var otpBackBtn    = document.getElementById('sms-otp-back-btn');
+    var anotherBtn    = document.getElementById('sms-another-btn');
+    var statusMsg     = document.getElementById('sms-status-msg');
+    var unsubLink     = document.getElementById('sms-unsub-toggle-link');
+    var unsubBox      = document.getElementById('sms-unsub-box');
+    var unsubPhone    = document.getElementById('sms-unsub-phone');
+    var unsubBtn      = document.getElementById('sms-unsub-btn');
+
+    if (!cardToggle || !cardBody || !sendOtpBtn) return;
+
+    function setStatus(text, type) {
+        if (!text) { statusMsg.style.display = 'none'; statusMsg.textContent = ''; return; }
+        statusMsg.style.display = 'block';
+        statusMsg.className = 'sms-status-msg ' + (type || 'info');
+        statusMsg.textContent = text;
+    }
+
+    cardToggle.addEventListener('click', function() {
+        var isOpen = cardBody.style.display === 'flex';
+        cardBody.style.display = isOpen ? 'none' : 'flex';
+        chevron.classList.toggle('open', !isOpen);
+        cardToggle.setAttribute('aria-expanded', String(!isOpen));
+    });
+    cardToggle.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); cardToggle.click(); } });
+
+    sendOtpBtn.addEventListener('click', function() {
+        var phone = phoneInput.value.trim().replace(/\s+/g, '');
+        var city = currentCity || document.getElementById('sms-target-city').textContent.trim();
+        var morningTime = timeInput.value || '07:00';
+        var morningEnabled = toggleMorning.checked;
+        var alertsEnabled = toggleAlerts.checked;
+        if (!phone) { setStatus('Please enter your mobile number in E.164 format (e.g. +919876543210).', 'error'); return; }
+        if (!city || city === '--') { setStatus('Please search for a city first before subscribing.', 'error'); return; }
+        if (!morningEnabled && !alertsEnabled) { setStatus('Please select at least one SMS alert option.', 'error'); return; }
+        setStatus('Contacting Twilio verification service...', 'info');
+        sendOtpBtn.disabled = true;
+        fetch('/api/sms/subscribe/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+            body: JSON.stringify({ phone:phone, city:city, morning_time:morningTime, morning_enabled:morningEnabled, alerts_enabled:alertsEnabled })
+        })
+        .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+        .then(function(res) {
+            sendOtpBtn.disabled = false;
+            if (!res.ok) { setStatus(res.data.error || 'Failed to send verification code.', 'error'); return; }
+            pendingPhone = phone;
+            otpPhoneDisp.textContent = phone;
+            subStep.style.display = 'none'; otpStep.style.display = 'block';
+            otpInput.value = '';
+            setStatus(res.data.message || 'Verification code sent.', 'info');
+        })
+        .catch(function(err){ sendOtpBtn.disabled = false; setStatus('Network error. Please try again.', 'error'); console.error(err); });
+    });
+
+    verifyOtpBtn.addEventListener('click', function() {
+        var code = otpInput.value.trim();
+        if (!code || code.length < 4) { setStatus('Please enter the verification code sent to your phone.', 'error'); return; }
+        setStatus('Verifying OTP code...', 'info');
+        verifyOtpBtn.disabled = true;
+        fetch('/api/sms/verify/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+            body: JSON.stringify({ phone:pendingPhone, code:code })
+        })
+        .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, data:d}; }); })
+        .then(function(res) {
+            verifyOtpBtn.disabled = false;
+            if (!res.ok) { setStatus(res.data.error || 'Verification failed.', 'error'); return; }
+            otpStep.style.display = 'none'; successStep.style.display = 'block';
+            document.getElementById('sms-success-msg').textContent = res.data.message || "You're subscribed!";
+            setStatus('', '');
+            showToast('✅ Subscribed to Weather SMS alerts!');
+        })
+        .catch(function(err){ verifyOtpBtn.disabled = false; setStatus('Network error during verification.', 'error'); console.error(err); });
+    });
+
+    otpBackBtn.addEventListener('click', function(){ otpStep.style.display='none'; subStep.style.display='block'; setStatus('',''); });
+    anotherBtn.addEventListener('click',  function(){ successStep.style.display='none'; subStep.style.display='block'; setStatus('',''); });
+
+    unsubLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        var open = unsubBox.style.display === 'block';
+        unsubBox.style.display = open ? 'none' : 'block';
+        if (!open && phoneInput.value) unsubPhone.value = phoneInput.value;
+    });
+
+    unsubBtn.addEventListener('click', function() {
+        var phone = unsubPhone.value.trim().replace(/\s+/g, '');
+        if (!phone) { setStatus('Please enter your phone number to unsubscribe.', 'error'); return; }
+        setStatus('Processing unsubscribe request...', 'info');
+        unsubBtn.disabled = true;
+        fetch('/api/sms/unsubscribe/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+            body: JSON.stringify({ phone:phone })
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ unsubBtn.disabled = false; setStatus(d.message || 'Unsubscribed.', 'info'); showToast('Unsubscribed ' + phone); unsubBox.style.display = 'none'; })
+        .catch(function(){ unsubBtn.disabled = false; setStatus('Failed to unsubscribe. Please try again.', 'error'); });
+    });
+})();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FAVOURITES
+   ══════════════════════════════════════════════════════════════════════════ */
+function getFavs()      { try { return JSON.parse(localStorage.getItem('weatherFavs')) || []; } catch(e){ return []; } }
+function saveFavs(arr)  { localStorage.setItem('weatherFavs', JSON.stringify(arr)); }
+function isFav(city)    { return getFavs().map(function(c){ return c.toLowerCase(); }).indexOf(city.toLowerCase()) !== -1; }
+
+function toggleFav(city) {
+    if (!window.APP || !window.APP.authenticated) {
+        showToast('🔒 Please sign in to save favourites', 3500);
+        return;
+    }
+    if (!city) return;
+    var favs = getFavs();
+    var idx  = favs.map(function(c){ return c.toLowerCase(); }).indexOf(city.toLowerCase());
+    var willAdd = (idx === -1);
+
+    if (willAdd) {
+        favs.push(city);
+        showToast('⭐ ' + city + ' saved to favourites');
+    } else {
+        favs.splice(idx, 1);
+        showToast('Removed ' + city + ' from favourites');
+    }
+    saveFavs(favs);
+    renderFavChips();
+    refreshFavBtn();
+
+    if (window.IS_AUTHENTICATED) {
+        if (willAdd) {
+            fetch('/api/favorites/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+                body: JSON.stringify({ city: city })
+            }).catch(function(e){ console.error('Failed to add favorite on server:', e); });
+        } else {
+            fetch('/api/favorites/', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+                body: JSON.stringify({ city: city })
+            }).catch(function(e){ console.error('Failed to delete favorite on server:', e); });
+        }
+    }
+}
+
+function removeFav(city) {
+    saveFavs(getFavs().filter(function(c){ return c.toLowerCase() !== city.toLowerCase(); }));
+    renderFavChips();
+    refreshFavBtn();
+
+    if (window.IS_AUTHENTICATED) {
+        fetch('/api/favorites/', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+            body: JSON.stringify({ city: city })
+        }).catch(function(e){ console.error('Failed to delete favorite on server:', e); });
+    }
+}
+function refreshFavBtn() {
+    var btn = document.getElementById('fav-btn');
+    if (!btn) return;
+    if (!window.APP || !window.APP.authenticated) {
+        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+        btn.title = 'Sign in to save favourites';
+        btn.setAttribute('aria-label', 'Sign in to save favourites');
+        btn.style.filter = 'none';
+        return;
+    }
+    var active = currentCity && isFav(currentCity);
+    btn.textContent = '⭐';
+    btn.classList.toggle('active', active);
+    btn.title  = active ? 'Remove from favourites' : 'Save to favourites';
+    btn.setAttribute('aria-label', active ? 'Remove from favourites' : 'Save to favourites');
+    btn.style.filter = active ? 'none' : 'grayscale(1) opacity(0.5)';
+}
+function renderFavChips() {
+    var row  = document.getElementById('fav-row');
+    if (!row) return;
+    if (!window.APP || !window.APP.authenticated) {
+        row.innerHTML = '';
+        return;
+    }
+    var favs = getFavs();
+    row.innerHTML = '';
+    favs.forEach(function(city) {
+        var chip = document.createElement('div');
+        chip.className = 'fav-chip';
+        chip.setAttribute('role', 'listitem');
+        chip.innerHTML = '<span class="chip-name">' + city + '</span><span class="chip-x" title="Remove" aria-label="Remove ' + city + '">✕</span>';
+        chip.querySelector('.chip-name').addEventListener('click', function(e){ e.stopPropagation(); searchCity(city); });
+        chip.querySelector('.chip-x').addEventListener('click',   function(e){ e.stopPropagation(); removeFav(city); });
+        row.appendChild(chip);
+    });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   GEOLOCATION
+   ══════════════════════════════════════════════════════════════════════════ */
+function handleGeo() {
+    if (!window.APP || !window.APP.authenticated) {
+        showToast('🔒 Please sign in to use your location', 3500);
+        return;
+    }
+    var btn = document.getElementById('geo-btn');
+    if (!navigator.geolocation) { showToast('Geolocation is not supported by your browser.', 4000); return; }
+    btn.classList.add('geo-loading'); btn.disabled = true;
+    navigator.geolocation.getCurrentPosition(
+        function(pos) {
+            var lat = pos.coords.latitude.toFixed(6), lon = pos.coords.longitude.toFixed(6);
+            fetch('/api/reverse/?lat=' + lat + '&lon=' + lon)
+                .then(function(r){ return r.json(); })
+                .then(function(d) {
+                    btn.classList.remove('geo-loading'); btn.disabled = false;
+                    if (d.error) { showToast('📍 ' + d.error, 4000); return; }
+                    showToast('📍 Detected: ' + d.city); searchCity(d.city);
+                })
+                .catch(function(){ btn.classList.remove('geo-loading'); btn.disabled = false; showToast('Could not reach geocoding service.', 4000); });
+        },
+        function(err) {
+            btn.classList.remove('geo-loading'); btn.disabled = false;
+            var msgs = {1:'Location permission denied.',2:'Location unavailable.',3:'Location request timed out.'};
+            showToast('📍 ' + (msgs[err.code] || 'Geolocation failed.'), 4000);
+        },
+        { timeout: 10000, maximumAge: 60000 }
+    );
+}
+
+function updateAuthLinks(city) {
+    if (window.APP && window.APP.authenticated) return;
+    try {
+        var nextParam = encodeURIComponent('/?city=' + encodeURIComponent(city));
+        document.querySelectorAll('.auth-dynamic-link').forEach(function(el) {
+            var href = el.getAttribute('href');
+            if (href) {
+                var base = href.split('?')[0];
+                el.setAttribute('href', base + '?next=' + nextParam);
+            }
+        });
+    } catch(e) {
+        console.error('Failed to update auth links:', e);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN SEARCH
+   ══════════════════════════════════════════════════════════════════════════ */
+function searchCity(city) {
+    if (!city || !city.trim()) return;
+    city = city.trim();
+    currentCity = city;
+    history.pushState(null, '', '/?city=' + encodeURIComponent(city));
+    document.getElementById('city-input').value = city;
+    document.getElementById('ac-dropdown').classList.remove('open');
+    showLoading();
+    refreshFavBtn();
+    updateAuthLinks(city);
+
+    var isAuth = window.APP && window.APP.authenticated;
+    var fetchReqs = [
+        fetch('/api/weather/?city=' + encodeURIComponent(city)).then(function(r){
+            if (r.status === 429) throw new Error('Rate limit exceeded. Please wait a moment.');
+            return r.json();
+        })
+    ];
+
+    if (isAuth) {
+        fetchReqs.push(
+            fetch('/api/forecast/?city=' + encodeURIComponent(city)).then(function(r){
+                if (r.status === 401) {
+                    window.location.href = (window.APP && window.APP.loginUrl) ? window.APP.loginUrl : '/accounts/login/';
+                    return null;
+                }
+                return r.json();
+            })
+        );
+    }
+
+    Promise.all(fetchReqs).then(function(results) {
+        var weatherData  = results[0];
+        var forecastData = results.length > 1 ? results[1] : null;
+        if (weatherData.error) { showError(weatherData.error); return; }
+        try { localStorage.setItem('lastCity', weatherData.city || city); } catch(e){}
+        updateWeather(weatherData);
+        if (forecastData && !forecastData.error) updateForecast(forecastData);
+    }).catch(function(err){
+        showError(err.message || 'Network error — please try again.');
+        console.error(err);
+    });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AUTOCOMPLETE
+   ══════════════════════════════════════════════════════════════════════════ */
+(function() {
+    var input    = document.getElementById('city-input');
+    var dropdown = document.getElementById('ac-dropdown');
+    var searchBt = document.getElementById('search-btn');
+    var geoBt    = document.getElementById('geo-btn');
+    var favBt    = document.getElementById('fav-btn');
+    var timer    = null;
+
+    searchBt.addEventListener('click', function(){ searchCity(input.value); });
+    input.addEventListener('keydown', function(e){ if(e.key==='Enter') searchCity(input.value); });
+    geoBt.addEventListener('click', handleGeo);
+    favBt.addEventListener('click', function(){ toggleFav(currentCity); });
+
+    input.addEventListener('input', function() {
+        clearTimeout(timer);
+        var q = input.value.trim();
+        if (q.length < 2) { dropdown.classList.remove('open'); return; }
+        timer = setTimeout(function() {
+            fetch('/autocomplete/?q=' + encodeURIComponent(q))
+                .then(function(r){ return r.json(); })
+                .then(function(suggestions) {
+                    dropdown.innerHTML = '';
+                    if (!suggestions.length) { dropdown.classList.remove('open'); return; }
+                    suggestions.forEach(function(s) {
+                        var item = document.createElement('div');
+                        item.className = 'ac-item'; item.setAttribute('role','option');
+                        item.textContent = s;
+                        item.addEventListener('click', function(){ searchCity(s.split(',')[0].trim()); });
+                        dropdown.appendChild(item);
+                    });
+                    dropdown.classList.add('open');
+                }).catch(function(){});
+        }, 280);
+    });
+    document.addEventListener('click', function(e){
+        if (!e.target.closest('.search-wrapper')) dropdown.classList.remove('open');
+    });
+})();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   INDIA WEATHER MAP MODAL
+   ══════════════════════════════════════════════════════════════════════════ */
+(function() {
+    var openMapBtn     = document.getElementById('open-map-btn');
+    var mapModal       = document.getElementById('map-modal');
+    var mapBackdrop    = document.getElementById('map-modal-backdrop');
+    var mapCloseBtn    = document.getElementById('map-modal-close-btn');
+    var mapIframe      = document.getElementById('map-iframe');
+    var mapLoading     = document.getElementById('map-loading');
+    var lastLoadedCity = null;
+
+    if (!openMapBtn || !mapModal) return;
+
+    function openModal() {
+        var targetCity = currentCity || window.INITIAL_CITY || '';
+        if (!mapIframe.src || lastLoadedCity !== targetCity) {
+            mapLoading.style.display = 'flex'; mapLoading.style.opacity = '1';
+            var mapUrl = '/api/map/' + (targetCity ? '?city=' + encodeURIComponent(targetCity) : '');
+            mapIframe.src = mapUrl; lastLoadedCity = targetCity;
+            mapIframe.onload = function() {
+                mapLoading.style.opacity = '0';
+                setTimeout(function(){ mapLoading.style.display = 'none'; }, 280);
+            };
+        }
+        mapModal.style.display = 'flex';
+        if (mapCloseBtn) mapCloseBtn.focus();
+    }
+    function closeModal() {
+        mapModal.style.display = 'none';
+        if (openMapBtn) openMapBtn.focus();
+    }
+
+    openMapBtn.addEventListener('click', openModal);
+    if (mapCloseBtn) mapCloseBtn.addEventListener('click', closeModal);
+    if (mapBackdrop) mapBackdrop.addEventListener('click', closeModal);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && mapModal.style.display !== 'none') closeModal();
+    });
+})();
+
+/* ── Chart toggle listeners ─────────────────────────────────────────────── */
+document.querySelectorAll('.metric-btn').forEach(function(b){ b.addEventListener('click', function(){ setMetric(this.dataset.metric); }); });
+document.querySelectorAll('.view-btn').forEach(function(b){   b.addEventListener('click', function(){ setView(this.dataset.view); }); });
+document.getElementById('btn-c').addEventListener('click', function(){ setUnit('C'); });
+document.getElementById('btn-f').addEventListener('click', function(){ setUnit('F'); });
+
+/* ── Browser back/forward ───────────────────────────────────────────────── */
+window.addEventListener('popstate', function() {
+    var city = new URLSearchParams(window.location.search).get('city');
+    if (city) searchCity(city);
+});
+
+/* ── User dropdown menu toggle ──────────────────────────────────────────── */
+(function() {
+    var menuBtn = document.getElementById('user-menu-btn');
+    var menu = document.getElementById('user-dropdown-menu');
+    if (menuBtn && menu) {
+        menuBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var isOpen = menu.classList.contains('show');
+            menu.classList.toggle('show', !isOpen);
+            menuBtn.setAttribute('aria-expanded', !isOpen);
+        });
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.user-dropdown-wrap')) {
+                menu.classList.remove('show');
+                menuBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+})();
+
+/* ── DOMContentLoaded ───────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {
+    window.IS_AUTHENTICATED = (window.APP && window.APP.authenticated) || false;
+    if (window.IS_AUTHENTICATED) {
+        initChart();
+        // Fetch favorites and unit preference from server
+        Promise.all([
+            fetch('/api/profile/').then(function(r){ return r.json(); }),
+            fetch('/api/favorites/').then(function(r){ return r.json(); })
+        ]).then(function(res) {
+            var profileData = res[0] || {};
+            var favData = res[1] || {};
+
+            // 1. Sync unit preference
+            if (profileData.units) {
+                currentUnit = profileData.units;
+                setUnit(currentUnit, false);
+            } else {
+                setUnit(currentUnit, false);
+            }
+
+            // 2. Check and sync favorites
+            var serverFavs = (favData.favorites || []).map(function(f){ return f.city; });
+            var localFavs = getFavs();
+
+            // Offer to import localStorage favorites if any exist and server is empty
+            if (localFavs.length > 0 && serverFavs.length === 0) {
+                fetch('/api/favorites/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') || '' },
+                    body: JSON.stringify({ favorites: localFavs.map(function(c){ return { city: c }; }) })
+                }).then(function() {
+                    saveFavs(localFavs);
+                    renderFavChips();
+                    refreshFavBtn();
+                    showToast('Merged ' + localFavs.length + ' favourites to your account');
+                }).catch(function(){
+                    saveFavs(serverFavs);
+                    renderFavChips();
+                    refreshFavBtn();
+                });
+            } else if (serverFavs.length > 0) {
+                saveFavs(serverFavs);
+                renderFavChips();
+                refreshFavBtn();
+            } else {
+                renderFavChips();
+                refreshFavBtn();
+            }
+        }).catch(function(e) {
+            console.error('Error fetching user profile/favorites:', e);
+            renderFavChips();
+            setUnit(currentUnit, false);
+            refreshFavBtn();
+        });
+    } else {
+        renderFavChips();
+        setUnit(currentUnit, false);
+        refreshFavBtn();
+    }
+
+    var urlParam = new URLSearchParams(window.location.search).get('city');
+    var storedCity = null;
+    try { storedCity = localStorage.getItem('lastCity'); } catch(e){}
+    var profileCity = (window.APP && window.APP.profileDefaultCity) ? window.APP.profileDefaultCity : null;
+    var defaultCity = (urlParam && urlParam.trim()) ||
+                      (window.INITIAL_CITY && window.INITIAL_CITY.trim()) ||
+                      (storedCity && storedCity.trim()) ||
+                      (profileCity && profileCity.trim()) ||
+                      'Coimbatore';
+
+    searchCity(defaultCity);
+});
+</script>
+</body>
+</html>
