@@ -241,6 +241,45 @@
     @media (max-width: 600px) {
       .auth-card { padding: 32px 24px; border: none; border-radius: 0; }
       .auth-main { padding: 0; align-items: flex-start; }
+      .developer-credit { position: static; margin: 20px auto 28px; }
+    }
+
+    /* Developer Credit */
+    .developer-credit {
+      position: fixed;
+      bottom: 18px;
+      right: 24px;
+      z-index: 95;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.73rem;
+      font-family: var(--font);
+      letter-spacing: 0.02em;
+      user-select: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+      transition: all 0.2s ease;
+    }
+    .developer-credit:hover {
+      border-color: #3b82f6;
+      color: var(--text-dark);
+      transform: translateY(-1px);
+    }
+    .developer-credit .dev-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #3b82f6;
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+    }
+    .developer-credit .dev-name {
+      color: var(--text-dark);
+      font-weight: 600;
     }
   </style>
   {% block extra_head %}{% endblock %}
@@ -283,5 +322,11 @@
       });
     });
   </script>
+  <div class="developer-credit" title="WeatherSense — Developed by AKASH P">
+    <span class="dev-dot"></span>
+    <span class="dev-text">Developed by</span>
+    <span class="dev-name">AKASH P</span>
+  </div>
+
 </body>
 </html>
